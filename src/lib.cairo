@@ -1,6 +1,3 @@
-// pub mod Fortichain;
-
-// pub mod interface {
-//     pub mod IRegister_project;
-//     pub mod IWithdraw;
-// }
+pub mod base;
+pub mod fortichain;
+pub mod interfaces;
