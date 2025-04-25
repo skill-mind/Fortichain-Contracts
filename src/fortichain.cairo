@@ -229,7 +229,7 @@ mod Fortichain {
             for i in 0..self.completed_projects.len() {
                 let id: u256 = self.completed_projects.at(i).read();
                 projects.append(id);
-            }
+            };
             projects
         }
 
@@ -238,7 +238,7 @@ mod Fortichain {
             for i in 0..self.in_progress_projects.len() {
                 let id: u256 = self.in_progress_projects.at(i).read();
                 projects.append(id);
-            }
+            };
             projects
         }
 
@@ -256,7 +256,7 @@ mod Fortichain {
                 let project_id = *project_ids[i];
                 let project = self.projects.read(project_id);
                 projects.append(project);
-            }
+            };
             projects
         }
 
@@ -283,12 +283,13 @@ mod Fortichain {
         }
 
         fn contains_project(self: @ContractState, projects: Array<u256>, project_id: u256) -> bool {
+            let mut status: bool = false;
             for i in 0..projects.len() {
                 if *projects[i] == project_id {
-                    return true;
+                    status = true;
                 }
-            }
-            false
+            };
+            status
         }
     }
 }
