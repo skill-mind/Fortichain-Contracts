@@ -227,14 +227,14 @@ mod Fortichain {
     }
     #[generate_trait]
     impl InternalFunctions of InternalFunctionsTrait {
-         fn get_completed_projects_as_array(self: @ContractState) -> Array<u256> {
+        fn get_completed_projects_as_array(self: @ContractState) -> Array<u256> {
             let mut projects = ArrayTrait::new();
             let project_count = self.project_count.read();
             for i in 1..=project_count {
                 if self.completed_projects.read(i) {
                     projects.append(i);
                 }
-            };
+            }
             projects
         }
 
@@ -245,7 +245,7 @@ mod Fortichain {
                 if self.in_progress_projects.read(i) {
                     projects.append(i);
                 }
-            };
+            }
             projects
         }
 
@@ -263,7 +263,7 @@ mod Fortichain {
                 let project_id = *project_ids[i];
                 let project = self.projects.read(project_id);
                 projects.append(project);
-            };
+            }
             projects
         }
 
