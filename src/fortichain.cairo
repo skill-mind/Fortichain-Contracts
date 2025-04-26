@@ -230,7 +230,7 @@ mod Fortichain {
         fn get_completed_projects_as_array(self: @ContractState) -> Array<u256> {
             let mut projects = ArrayTrait::new();
             let project_count = self.project_count.read();
-            for i in 1..project_count {
+            for i in 1..=project_count {
                 if self.completed_projects.read(i) {
                     projects.append(i);
                 }
@@ -241,7 +241,7 @@ mod Fortichain {
         fn get_in_progress_projects_as_array(self: @ContractState) -> Array<u256> {
             let mut projects = ArrayTrait::new();
             let project_count = self.project_count.read();
-            for i in 1..project_count {
+            for i in 1..=project_count {
                 if self.in_progress_projects.read(i) {
                     projects.append(i);
                 }
