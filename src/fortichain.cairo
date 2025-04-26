@@ -19,8 +19,8 @@ mod Fortichain {
     struct Storage {
         projects: Map<u256, Project>,
         project_count: u256,
-        completed_projects: Vec<u256>,
-        in_progress_projects: Vec<u256>,
+        completed_projects: Map<u256, bool>,
+        in_progress_projects: Map<u256, bool>,
     }
 
     #[event]
@@ -77,7 +77,7 @@ mod Fortichain {
 
             self.projects.write(id, project);
             self.project_count.write(id);
-            self.in_progress_projects.push(id);
+            self.in_progress_projects.write(id, true);
 
             id
         }
@@ -158,6 +158,9 @@ mod Fortichain {
             project.updated_at = timestamp;
             self.projects.write(project.id, project);
 
+            self.in_progress_projects.write(id, false);
+            self.completed_projects.write(id, true);
+
             true
         }
 
@@ -224,20 +227,24 @@ mod Fortichain {
     }
     #[generate_trait]
     impl InternalFunctions of InternalFunctionsTrait {
-        fn get_completed_projects_as_array(self: @ContractState) -> Array<u256> {
+         fn get_completed_projects_as_array(self: @ContractState) -> Array<u256> {
             let mut projects = ArrayTrait::new();
-            for i in 0..self.completed_projects.len() {
-                let id: u256 = self.completed_projects.at(i).read();
-                projects.append(id);
+            let project_count = self.project_count.read();
+            for i in 1..=project_count {
+                if self.completed_projects.read(i) {
+                    projects.append(i);
+                }
             };
             projects
         }
 
         fn get_in_progress_projects_as_array(self: @ContractState) -> Array<u256> {
             let mut projects = ArrayTrait::new();
-            for i in 0..self.in_progress_projects.len() {
-                let id: u256 = self.in_progress_projects.at(i).read();
-                projects.append(id);
+            let project_count = self.project_count.read();
+            for i in 1..=project_count {
+                if self.in_progress_projects.read(i) {
+                    projects.append(i);
+                }
             };
             projects
         }
@@ -271,25 +278,17 @@ mod Fortichain {
         }
 
         fn add_to_completed(ref self: ContractState, project_id: u256) {
-            if !self.contains_project(self.get_completed_projects_as_array(), project_id) {
-                self.completed_projects.push(project_id);
-            }
+            self.completed_projects.write(project_id, true);
+            self.in_progress_projects.write(project_id, false);
         }
 
         fn add_to_in_progress(ref self: ContractState, project_id: u256) {
-            if !self.contains_project(self.get_in_progress_projects_as_array(), project_id) {
-                self.in_progress_projects.push(project_id);
-            }
+            self.in_progress_projects.write(project_id, true);
+            self.completed_projects.write(project_id, false);
         }
 
-        fn contains_project(self: @ContractState, projects: Array<u256>, project_id: u256) -> bool {
-            let mut status: bool = false;
-            for i in 0..projects.len() {
-                if *projects[i] == project_id {
-                    status = true;
-                }
-            };
-            status
+        fn contains_project(self: @ContractState, project_id: u256) -> bool {
+            self.completed_projects.read(project_id) || self.in_progress_projects.read(project_id)
         }
     }
 }
