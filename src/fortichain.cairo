@@ -1,9 +1,11 @@
+use fortichain_contracts::interfaces::IMockUsdc::{IMockUsdcDispatcher, IMockUsdcDispatcherTrait};
 #[starknet::contract]
 mod Fortichain {
     use core::array::{Array, ArrayTrait};
     use core::num::traits::Zero;
     use core::option::OptionTrait;
     use core::traits::Into;
+    use fortichain_contracts::MockUsdc::MockUsdc;
     use fortichain_contracts::interfaces::IFortichain::IFortichain;
     use starknet::storage::{
         Map, Mutable, MutableVecTrait, StorageBase, StorageMapReadAccess, StorageMapWriteAccess,
@@ -13,20 +15,29 @@ mod Fortichain {
         ClassHash, ContractAddress, get_block_timestamp, get_caller_address, get_contract_address,
     };
     use crate::base::errors::Errors::{ONLY_CREATOR_CAN_CLOSE, PROJECT_NOT_FOUND};
-    use crate::base::types::Project;
+    use crate::base::types::{Escrow, Project};
+    use super::IMockUsdcDispatcherTrait;
 
     #[storage]
     struct Storage {
         projects: Map<u256, Project>,
+        escrows: Map<u256, Escrow>,
+        escrows_balance: Map<u256, u256>,
+        escrows_is_active: Map<u256, bool>,
         project_count: u256,
+        escrows_count: u256,
         completed_projects: Map<u256, bool>,
         in_progress_projects: Map<u256, bool>,
+        strk_token_address: ContractAddress,
     }
 
     #[event]
     #[derive(Drop, starknet::Event)]
     pub enum Event {
         ProjectStatusChanged: ProjectStatusChanged,
+        EscrowCreated: EscrowCreated,
+        EscrowFundingPulled: EscrowFundingPulled,
+        EscrowFundsAdded: EscrowFundsAdded,
     }
 
     #[derive(Drop, starknet::Event)]
@@ -35,8 +46,32 @@ mod Fortichain {
         pub status: bool // true for completed, false for in-progress
     }
 
+    #[derive(Drop, starknet::Event)]
+    pub struct EscrowCreated {
+        pub escrow_id: u256,
+        pub owner: ContractAddress,
+        pub unlock_time: u64,
+        pub amount: u256,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct EscrowFundsAdded {
+        pub escrow_id: u256,
+        pub owner: ContractAddress,
+        pub new_amount: u256,
+    }
+
+
+    #[derive(Drop, starknet::Event)]
+    pub struct EscrowFundingPulled {
+        pub escrow_id: u256,
+        pub owner: ContractAddress,
+    }
+
     #[constructor]
-    fn constructor(ref self: ContractState) {}
+    fn constructor(ref self: ContractState, erc20: ContractAddress) {
+        self.strk_token_address.write(erc20);
+    }
 
     #[abi(embed_v0)]
     impl FortichainImpl of IFortichain<ContractState> {
@@ -169,6 +204,11 @@ mod Fortichain {
             assert(project.id > 0, PROJECT_NOT_FOUND);
             project
         }
+        fn view_escrow(self: @ContractState, id: u256) -> Escrow {
+            let escrow = self.escrows.read(id);
+            assert(escrow.id > 0, 'ESCROW not found');
+            escrow
+        }
 
         fn total_projects(self: @ContractState) -> u256 {
             let total: u256 = self.project_count.read();
@@ -223,6 +263,154 @@ mod Fortichain {
                         ProjectStatusChanged { project_id: id, status: false },
                     ),
                 );
+        }
+
+        fn fund_project(
+            ref self: ContractState, project_id: u256, amount: u256, lockTime: u64,
+        ) -> u256 {
+            assert(amount > 0, 'Invalid fund amount');
+            assert(lockTime > 0, 'unlock time not in the future');
+            let caller = get_caller_address();
+            let timestamp: u64 = get_block_timestamp();
+            let receiver = get_contract_address();
+            let id: u256 = self.escrows_count.read() + 1;
+            let mut project = self.view_project(project_id);
+            assert(project.creator_address == caller, 'Can only fund your project');
+
+            let success = self.process_payment(caller, amount, receiver);
+            assert(success, 'Tokens transfer failed');
+
+            let escrow = Escrow {
+                id,
+                project_name: project.name,
+                projectOwner: caller,
+                amount: amount,
+                isLocked: true,
+                lockTime: timestamp + lockTime,
+                is_active: true,
+                created_at: timestamp,
+                updated_at: timestamp,
+            };
+
+            self.escrows_count.write(id);
+            self.escrows_is_active.write(id, true);
+            self.escrows_balance.write(id, amount);
+            self.escrows.write(id, escrow);
+
+            self
+                .emit(
+                    Event::EscrowCreated(
+                        EscrowCreated {
+                            escrow_id: id, owner: caller, unlock_time: lockTime, amount: amount,
+                        },
+                    ),
+                );
+
+            id
+        }
+        fn pull_escrow_funding(ref self: ContractState, escrow_id: u256) -> bool {
+            let cur_escrow_count = self.escrows_count.read();
+
+            let caller = get_caller_address();
+            let timestamp: u64 = get_block_timestamp();
+            let contract = get_contract_address();
+
+            assert((escrow_id > 0) && (escrow_id >= cur_escrow_count), 'invalid escrow id');
+            let mut escrow = self.view_escrow(escrow_id);
+
+            assert(escrow.lockTime <= timestamp, 'Unlock time in the future');
+            assert(caller == escrow.projectOwner, 'not your escrow');
+
+            assert(escrow.is_active, 'No funds to pull out');
+
+            let amount = escrow.amount;
+
+            escrow.amount = 0;
+            escrow.lockTime = 0;
+            escrow.isLocked = false;
+            escrow.is_active = false;
+            escrow.updated_at = timestamp;
+
+            self.escrows_is_active.write(escrow_id, false);
+            self.escrows_balance.write(escrow_id, 0);
+            self.escrows.write(escrow_id, escrow);
+
+            let token = self.strk_token_address.read();
+
+            let erc20_dispatcher = super::IMockUsdcDispatcher { contract_address: token };
+
+            let contract_bal = erc20_dispatcher.get_balance(contract);
+            assert(contract_bal >= amount, 'Insufficient funds');
+            let success = erc20_dispatcher.transferFrom(contract, caller, amount);
+            assert(success, 'token withdrawal fail...');
+
+            self
+                .emit(
+                    Event::EscrowFundingPulled(
+                        EscrowFundingPulled { escrow_id: escrow_id, owner: caller },
+                    ),
+                );
+
+            true
+        }
+
+        fn add_escrow_funding(ref self: ContractState, escrow_id: u256, amount: u256) -> bool {
+            let cur_escrow_count = self.escrows_count.read();
+
+            let caller = get_caller_address();
+            let timestamp: u64 = get_block_timestamp();
+            let contract = get_contract_address();
+
+            assert((escrow_id > 0) && (escrow_id >= cur_escrow_count), 'invalid escrow id');
+            let mut escrow = self.view_escrow(escrow_id);
+
+            assert(escrow.lockTime >= timestamp, 'Escrow has Matured');
+            assert(escrow.is_active, 'escrow not active');
+            assert(caller == escrow.projectOwner, 'not your escrow');
+
+            let success = self.process_payment(caller, amount, contract);
+            assert(success, 'Tokens transfer failed');
+            escrow.amount += amount;
+
+            escrow.updated_at = timestamp;
+
+            self.escrows_balance.write(escrow_id, escrow.amount);
+            self.escrows.write(escrow_id, escrow);
+
+            self
+                .emit(
+                    Event::EscrowFundsAdded(
+                        EscrowFundsAdded {
+                            escrow_id: escrow_id, owner: caller, new_amount: escrow.amount,
+                        },
+                    ),
+                );
+
+            true
+        }
+
+        fn process_payment(
+            ref self: ContractState,
+            payer: ContractAddress,
+            amount: u256,
+            recipient: ContractAddress,
+        ) -> bool { // TODO: Uncomment code after ERC20 implementation
+            let token = self.strk_token_address.read();
+
+            let erc20_dispatcher = super::IMockUsdcDispatcher { contract_address: token };
+            erc20_dispatcher.approve_user(get_contract_address(), amount);
+            let contract_allowance = erc20_dispatcher.get_allowance(payer, get_contract_address());
+            assert(contract_allowance >= amount, 'INSUFFICIENT_ALLOWANCE');
+            let user_bal = erc20_dispatcher.get_balance(payer);
+            assert(user_bal >= amount, 'Insufficient funds');
+            let success = erc20_dispatcher.transferFrom(payer, recipient, amount);
+            assert(success, 'token withdrawal fail...');
+            success
+        }
+
+        fn get_erc20_address(self: @ContractState) -> ContractAddress {
+            let token = self.strk_token_address.read();
+            token
         }
     }
     #[generate_trait]
