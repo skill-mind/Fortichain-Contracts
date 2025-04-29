@@ -29,6 +29,7 @@ mod Fortichain {
         completed_projects: Map<u256, bool>,
         in_progress_projects: Map<u256, bool>,
         strk_token_address: ContractAddress,
+        contributor_reports:Map<(ContractAddress, u256), felt252> // the persons contract address and the project and a link to the full report description
     }
 
     #[event]
@@ -412,6 +413,23 @@ mod Fortichain {
             let token = self.strk_token_address.read();
             token
         }
+
+        fn submit_report(ref self: ContractState, project_id: u256, link_to_work: felt252) -> bool {
+            let project: Project = self.projects.read(project_id);
+            let caller = get_caller_address()
+            assert(project.id > 0, PROJECT_NOT_FOUND);
+            self.contributor_reports.write((caller, project_id), link_to_work);
+        }
+
+        fn approve_a_report(ref self: TContractState, project_id: u256, report_id: u256) {
+            let project: Project = self.projects.read(project_id);
+            let caller = get_caller_address()
+            assert(project.id > 0, PROJECT_NOT_FOUND);
+        }
+    
+        fn pay_an_approved_report(
+            ref self: TContractState, project_id: u256, amount: u256, report_id: u256,
+        );
     }
     #[generate_trait]
     impl InternalFunctions of InternalFunctionsTrait {
@@ -478,5 +496,7 @@ mod Fortichain {
         fn contains_project(self: @ContractState, project_id: u256) -> bool {
             self.completed_projects.read(project_id) || self.in_progress_projects.read(project_id)
         }
+
+        
     }
 }
