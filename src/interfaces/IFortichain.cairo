@@ -62,5 +62,35 @@ pub trait IFortichain<TContractState> {
     ) -> bool;
 
     fn get_erc20_address(self: @TContractState) -> ContractAddress;
+
+    fn submit_report(ref self: TContractState, project_id: u256, link_to_work: felt252) -> bool;
+
+    fn approve_a_report(
+        ref self: TContractState, project_id: u256, submit_address: ContractAddress,
+    );
+
+    fn pay_an_approved_report(
+        ref self: TContractState,
+        project_id: u256,
+        amount: u256,
+        submitter_Address: ContractAddress,
+    );
+
+    fn set_role(
+        ref self: TContractState, recipient: ContractAddress, role: felt252, is_enable: bool,
+    );
+
+    fn is_validator(self: @TContractState, role: felt252, address: ContractAddress) -> bool;
+    fn get_contributor_report(
+        ref self: TContractState, project_id: u256, submitter_address: ContractAddress,
+    ) -> (felt252, bool);
+
+    fn get_list_of_approved_contributors(
+        ref self: TContractState, project_id: u256,
+    ) -> Array<ContractAddress>;
+
+    fn get_contributor_paid_status(
+        ref self: TContractState, project_id: u256, submitter_address: ContractAddress,
+    ) -> bool;
 }
 

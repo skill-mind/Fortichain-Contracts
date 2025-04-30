@@ -7,6 +7,9 @@ mod Fortichain {
     use core::traits::Into;
     use fortichain_contracts::MockUsdc::MockUsdc;
     use fortichain_contracts::interfaces::IFortichain::IFortichain;
+    use openzeppelin::access::accesscontrol::AccessControlComponent;
+    use openzeppelin::access::ownable::OwnableComponent;
+    use openzeppelin::introspection::src5::SRC5Component;
     use starknet::storage::{
         Map, Mutable, MutableVecTrait, StorageBase, StorageMapReadAccess, StorageMapWriteAccess,
         StoragePathEntry, StoragePointerReadAccess, StoragePointerWriteAccess, Vec, VecTrait,
@@ -17,6 +20,25 @@ mod Fortichain {
     use crate::base::errors::Errors::{ONLY_CREATOR_CAN_CLOSE, PROJECT_NOT_FOUND};
     use crate::base::types::{Escrow, Project};
     use super::IMockUsdcDispatcherTrait;
+
+    component!(path: OwnableComponent, storage: ownable, event: OwnableEvent);
+    component!(path: AccessControlComponent, storage: accesscontrol, event: AccessControlEvent);
+    component!(path: SRC5Component, storage: src5, event: SRC5Event);
+
+    #[abi(embed_v0)]
+    impl OwnableImpl = OwnableComponent::OwnableImpl<ContractState>;
+
+    impl OwnableInternalImpl = OwnableComponent::InternalImpl<ContractState>;
+
+    #[abi(embed_v0)]
+    impl SRC5Impl = SRC5Component::SRC5Impl<ContractState>;
+
+    #[abi(embed_v0)]
+    impl AccessControlImpl =
+        AccessControlComponent::AccessControlImpl<ContractState>;
+
+    impl AccessControlInternalImpl = AccessControlComponent::InternalImpl<ContractState>;
+
 
     #[storage]
     struct Storage {
@@ -29,6 +51,19 @@ mod Fortichain {
         completed_projects: Map<u256, bool>,
         in_progress_projects: Map<u256, bool>,
         strk_token_address: ContractAddress,
+        contributor_reports: Map<(ContractAddress, u256), (felt252, bool)>,
+        // the persons contract address and the project and
+        // a link to the full report description and
+        //  a status that only the validator can change
+        approved_contributor_reports: Map<u256, Vec<ContractAddress>>,
+        // project id and a list of the approved contributors
+        paid_contributors: Map<(u256, ContractAddress), bool>,
+        #[substorage(v0)]
+        ownable: OwnableComponent::Storage,
+        #[substorage(v0)]
+        accesscontrol: AccessControlComponent::Storage,
+        #[substorage(v0)]
+        src5: SRC5Component::Storage,
     }
 
     #[event]
@@ -38,6 +73,12 @@ mod Fortichain {
         EscrowCreated: EscrowCreated,
         EscrowFundingPulled: EscrowFundingPulled,
         EscrowFundsAdded: EscrowFundsAdded,
+        #[flat]
+        OwnableEvent: OwnableComponent::Event,
+        #[flat]
+        AccessControlEvent: AccessControlComponent::Event,
+        #[flat]
+        SRC5Event: SRC5Component::Event,
     }
 
     #[derive(Drop, starknet::Event)]
@@ -68,9 +109,15 @@ mod Fortichain {
         pub owner: ContractAddress,
     }
 
+    const VALIDATOR_ROLE: felt252 = selector!("VALIDATOR_ROLE");
+
+
     #[constructor]
-    fn constructor(ref self: ContractState, erc20: ContractAddress) {
+    fn constructor(ref self: ContractState, erc20: ContractAddress, owner: ContractAddress) {
         self.strk_token_address.write(erc20);
+        self.ownable.initializer(owner);
+        self.accesscontrol.initializer();
+        self.accesscontrol._grant_role(VALIDATOR_ROLE, owner);
     }
 
     #[abi(embed_v0)]
@@ -412,6 +459,119 @@ mod Fortichain {
             let token = self.strk_token_address.read();
             token
         }
+
+        fn submit_report(ref self: ContractState, project_id: u256, link_to_work: felt252) -> bool {
+            let project: Project = self.projects.read(project_id);
+            let caller = get_caller_address();
+            assert(project.id > 0, PROJECT_NOT_FOUND);
+            self.contributor_reports.write((caller, project_id), (link_to_work, false));
+
+            true
+        }
+
+        fn approve_a_report(
+            ref self: ContractState, project_id: u256, submit_address: ContractAddress,
+        ) {
+            self.accesscontrol.assert_only_role(VALIDATOR_ROLE);
+            let project: Project = self.projects.read(project_id);
+            assert(project.id > 0, PROJECT_NOT_FOUND);
+            let (x, mut y): (felt252, bool) = self
+                .contributor_reports
+                .read((submit_address, project_id));
+
+            y = true;
+            self.contributor_reports.write((submit_address, project_id), (x, y));
+
+            self.approved_contributor_reports.entry(project_id).append().write(submit_address);
+        }
+
+        fn pay_an_approved_report(
+            ref self: ContractState,
+            project_id: u256,
+            amount: u256,
+            submitter_Address: ContractAddress,
+        ) {
+            assert(amount > 0, 'Invalid fund amount');
+            let caller = get_caller_address();
+
+            let mut project: Project = self.view_project(project_id);
+            assert(project.creator_address == caller, 'Only project owner can pay');
+            assert(project.is_active, 'Project not active');
+
+            // get the owner of the report approve status
+            let (_, mut y): (felt252, bool) = self
+                .contributor_reports
+                .read((submitter_Address, project_id));
+
+            assert(y, 'Report not approved');
+
+            let _get_list_of_approved_contributors: Array<ContractAddress> = self
+                .get_list_of_approved_contributors(project_id);
+            // should be checked here
+
+            // assert that the report_id has not been paid
+            let mut paid_report: bool = self.paid_contributors.read((project_id, caller));
+            assert(!paid_report, 'Report already paid');
+            paid_report = true;
+            self.paid_contributors.write((project_id, submitter_Address), true);
+
+            let timestamp: u64 = get_block_timestamp();
+            project.updated_at = timestamp;
+            self.projects.write(project_id, project);
+
+            let success = self.process_payment(get_contract_address(), amount, submitter_Address);
+            assert(success, 'Tokens transfer failed');
+        }
+
+
+        fn set_role(
+            ref self: ContractState, recipient: ContractAddress, role: felt252, is_enable: bool,
+        ) {
+            self._set_role(recipient, role, is_enable);
+        }
+        fn is_validator(self: @ContractState, role: felt252, address: ContractAddress) -> bool {
+            self.accesscontrol.has_role(role, address)
+        }
+        fn get_contributor_report(
+            ref self: ContractState, project_id: u256, submitter_address: ContractAddress,
+        ) -> (felt252, bool) {
+            let project: Project = self.projects.read(project_id);
+            assert(project.id > 0, PROJECT_NOT_FOUND);
+
+            let (x, y): (felt252, bool) = self
+                .contributor_reports
+                .read((submitter_address, project_id));
+
+            (x, y)
+        }
+        fn get_list_of_approved_contributors(
+            ref self: ContractState, project_id: u256,
+        ) -> Array<ContractAddress> {
+            let project: Project = self.projects.read(project_id);
+            assert(project.id > 0, PROJECT_NOT_FOUND);
+
+            let report_vec = self.approved_contributor_reports.entry(project_id);
+            let len = report_vec.len();
+            let mut i: u64 = 0;
+            let mut approved_contributors = ArrayTrait::new();
+
+            while i < len {
+                let address = report_vec.at(i).read();
+                approved_contributors.append(address);
+                i += 1;
+            }
+            approved_contributors
+        }
+
+        fn get_contributor_paid_status(
+            ref self: ContractState, project_id: u256, submitter_address: ContractAddress,
+        ) -> bool {
+            let project: Project = self.projects.read(project_id);
+            assert(project.id > 0, PROJECT_NOT_FOUND);
+
+            let paid_report: bool = self.paid_contributors.read((project_id, submitter_address));
+            paid_report
+        }
     }
     #[generate_trait]
     impl InternalFunctions of InternalFunctionsTrait {
@@ -477,6 +637,19 @@ mod Fortichain {
 
         fn contains_project(self: @ContractState, project_id: u256) -> bool {
             self.completed_projects.read(project_id) || self.in_progress_projects.read(project_id)
+        }
+
+        fn _set_role(
+            ref self: ContractState, recipient: ContractAddress, role: felt252, is_enable: bool,
+        ) {
+            self.ownable.assert_only_owner();
+            self.accesscontrol.assert_only_role(VALIDATOR_ROLE);
+            assert!(role == VALIDATOR_ROLE, "role not enable");
+            if is_enable {
+                self.accesscontrol._grant_role(role, recipient);
+            } else {
+                self.accesscontrol._revoke_role(role, recipient);
+            }
         }
     }
 }
