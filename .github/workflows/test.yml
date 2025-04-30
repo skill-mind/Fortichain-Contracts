@@ -1,30 +1,43 @@
-name: Build and Test
-
-on: [push, pull_request]
-permissions: read-all
-
+name: Contracts CI
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
 jobs:
-  build:
+  build-and-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: software-mansion/setup-scarb@v1
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
         with:
-          scarb-version: 2.10.1
-      - name: Check cairo format
-        run: scarb fmt --check
-      - name: Build cairo programs
-        run: scarb build
+          toolchain: stable
+          override: true
 
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: software-mansion/setup-scarb@v1
-        with:
-          scarb-version: 2.10.1
-      - uses: foundry-rs/setup-snfoundry@v3
-        with:
-          starknet-foundry-version: 0.38.0
-      - name: Run cairo tests
-        run: snforge test
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install asdf
+        uses: asdf-vm/actions/setup@v2
+
+      - name: Install plugins
+        run: |
+          asdf plugin add scarb
+          asdf install scarb 2.11.3
+          asdf global scarb 2.11.3
+
+          asdf plugin add starknet-foundry
+          asdf install starknet-foundry  0.39.0
+          asdf global starknet-foundry  0.39.0
+
+      - name: Build contracts
+        run: |
+          scarb build
+
+      - name: Run tests
+        run: |
+          snforge test
+
+      - name: Check formatting
+        run: |
+          scarb fmt --check
