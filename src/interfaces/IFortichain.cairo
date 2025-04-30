@@ -70,5 +70,11 @@ pub trait IFortichain<TContractState> {
     fn pay_an_approved_report(
         ref self: TContractState, project_id: u256, amount: u256, report_id: u256,
     );
+
+    fn set_role(
+        ref self: TContractState, recipient: ContractAddress, role: felt252, is_enable: bool
+    );
+
+    fn is_validator(self: @TContractState, role: felt252, address: ContractAddress) -> bool;
 }
 

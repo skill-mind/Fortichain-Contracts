@@ -21,8 +21,14 @@ fn contract() -> IFortichainDispatcher {
     let erc20_contract = deploy_erc20();
     let erc20_address = erc20_contract.contract_address;
 
+    let mut constructor_calldata = array![];
+    let erc20_address: ContractAddress = erc20_address.into();
+    let owner: ContractAddress = OWNER().try_into().unwrap();
+    erc20_address.serialize(ref constructor_calldata);
+    owner.serialize(ref constructor_calldata);
+
     let (contract_address, _) = contract_class
-        .deploy(@array![erc20_address.into()].into())
+        .deploy(@constructor_calldata)
         .unwrap();
     (IFortichainDispatcher { contract_address })
 }
@@ -35,6 +41,17 @@ fn deploy_erc20() -> IMockUsdcDispatcher {
 
     IMockUsdcDispatcher { contract_address }
 }
+
+fn OWNER() -> ContractAddress {
+    'OWNER'.try_into().unwrap()
+}
+
+fn VALIDATOR_ADDRESS() -> ContractAddress {
+    'VALIDATOR_ADDRESS'.try_into().unwrap()
+}
+
+const VALIDATOR_ROLE: felt252 = selector!("VALIDATOR_ROLE");
+const INVALID_ROLE: felt252 = selector!("INVALID_ROLE");
 
 #[test]
 fn test_successful_register_project() {
@@ -763,4 +780,72 @@ fn test_pull_someone_elses_escrow_funds() {
     contract.pull_escrow_funding(escrow_id);
 
     stop_cheat_caller_address(malicious_address);
+}
+
+
+
+#[test]
+fn test_set_role() {
+    let contract = contract();
+    let smart_contract_address: ContractAddress = 0x0.try_into().unwrap();
+    contract
+        .register_project(
+            'Test Name',
+            "Test Description",
+            "DEFI, NFT, Gaming",
+            smart_contract_address,
+            "test@email.com",
+            "https://test.com/supporting-document.pdf",
+            "https://test.com/logo.png",
+            'Github',
+            "https://github.com/test/test",
+            true,
+        );
+
+    
+    start_cheat_caller_address(contract.contract_address, OWNER());
+    contract.set_role(VALIDATOR_ADDRESS(), VALIDATOR_ROLE, true);
+    stop_cheat_caller_address(contract.contract_address);
+
+    let is_validator = contract.is_validator(VALIDATOR_ROLE, VALIDATOR_ADDRESS());
+    assert(is_validator, 'wrong is_validator value');
+}
+
+#[test]
+#[should_panic]
+fn test_set_role_should_panic_when_invalid_role_is_passed() {
+    let contract = contract();
+    let smart_contract_address: ContractAddress = 0x0.try_into().unwrap();
+    contract
+        .register_project(
+            'Test Name',
+            "Test Description",
+            "DEFI, NFT, Gaming",
+            smart_contract_address,
+            "test@email.com",
+            "https://test.com/supporting-document.pdf",
+            "https://test.com/logo.png",
+            'Github',
+            "https://github.com/test/test",
+            true,
+        );
+
+
+    start_cheat_caller_address(contract.contract_address, OWNER());
+    contract.set_role(VALIDATOR_ADDRESS(), INVALID_ROLE, true);
+    stop_cheat_caller_address(contract.contract_address);
+}
+
+#[test]
+#[should_panic(expected: ('Caller is not the owner',))]
+fn test_set_role_should_panic_when_called_by_non_owner() {
+    let contract = contract();
+
+    start_cheat_caller_address(contract.contract_address, OWNER());
+    contract.set_role(VALIDATOR_ADDRESS(), VALIDATOR_ROLE, true);
+    stop_cheat_caller_address(contract.contract_address);
+
+    start_cheat_caller_address(contract.contract_address, VALIDATOR_ADDRESS());
+    contract.set_role(VALIDATOR_ADDRESS(), VALIDATOR_ROLE, true);
+    stop_cheat_caller_address(contract.contract_address);
 }
