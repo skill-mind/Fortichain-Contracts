@@ -1129,10 +1129,10 @@ fn test_successful_pay_of_an_approved_validator() {
     let (x, y): (felt252, bool) = contract.get_contributor_report(id, submitter_address);
     assert(x == 0x1234, 'Failed to get correct report');
     assert(y, 'Failed write approve report');
-    // start_cheat_caller_address(contract_address, creator_address);
-// contract.pay_an_approved_report(id, 4, submitter_address);
-// stop_cheat_caller_address(contract.contract_address);
+    start_cheat_caller_address(contract_address, creator_address);
+    contract.pay_an_approved_report(id, 4, submitter_address);
+    stop_cheat_caller_address(contract.contract_address);
 
-    // let payment_status: bool = contract.get_contributor_paid_status(id, submitter_address);
-// assert(payment_status, 'Failed to pay the contributor');
+    let payment_status: bool = contract.get_contributor_paid_status(id, submitter_address);
+    assert(payment_status, 'Failed to pay the contributor');
 }

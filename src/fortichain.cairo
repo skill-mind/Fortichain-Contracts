@@ -513,7 +513,7 @@ mod Fortichain {
             let mut paid_report: bool = self.paid_contributors.read((project_id, caller));
             assert(!paid_report, 'Report already paid');
             paid_report = true;
-            self.paid_contributors.write((project_id, caller), paid_report);
+            self.paid_contributors.write((project_id, submitter_Address), true);
 
             let timestamp: u64 = get_block_timestamp();
             project.updated_at = timestamp;
