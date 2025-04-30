@@ -72,7 +72,7 @@ pub trait IFortichain<TContractState> {
     );
 
     fn set_role(
-        ref self: TContractState, recipient: ContractAddress, role: felt252, is_enable: bool
+        ref self: TContractState, recipient: ContractAddress, role: felt252, is_enable: bool,
     );
 
     fn is_validator(self: @TContractState, role: felt252, address: ContractAddress) -> bool;

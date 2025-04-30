@@ -27,9 +27,7 @@ fn contract() -> IFortichainDispatcher {
     erc20_address.serialize(ref constructor_calldata);
     owner.serialize(ref constructor_calldata);
 
-    let (contract_address, _) = contract_class
-        .deploy(@constructor_calldata)
-        .unwrap();
+    let (contract_address, _) = contract_class.deploy(@constructor_calldata).unwrap();
     (IFortichainDispatcher { contract_address })
 }
 
@@ -783,7 +781,6 @@ fn test_pull_someone_elses_escrow_funds() {
 }
 
 
-
 #[test]
 fn test_set_role() {
     let contract = contract();
@@ -802,7 +799,6 @@ fn test_set_role() {
             true,
         );
 
-    
     start_cheat_caller_address(contract.contract_address, OWNER());
     contract.set_role(VALIDATOR_ADDRESS(), VALIDATOR_ROLE, true);
     stop_cheat_caller_address(contract.contract_address);
@@ -829,7 +825,6 @@ fn test_set_role_should_panic_when_invalid_role_is_passed() {
             "https://github.com/test/test",
             true,
         );
-
 
     start_cheat_caller_address(contract.contract_address, OWNER());
     contract.set_role(VALIDATOR_ADDRESS(), INVALID_ROLE, true);

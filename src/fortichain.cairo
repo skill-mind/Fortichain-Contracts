@@ -7,6 +7,9 @@ mod Fortichain {
     use core::traits::Into;
     use fortichain_contracts::MockUsdc::MockUsdc;
     use fortichain_contracts::interfaces::IFortichain::IFortichain;
+    use openzeppelin::access::accesscontrol::AccessControlComponent;
+    use openzeppelin::access::ownable::OwnableComponent;
+    use openzeppelin::introspection::src5::SRC5Component;
     use starknet::storage::{
         Map, Mutable, MutableVecTrait, StorageBase, StorageMapReadAccess, StorageMapWriteAccess,
         StoragePathEntry, StoragePointerReadAccess, StoragePointerWriteAccess, Vec, VecTrait,
@@ -17,10 +20,6 @@ mod Fortichain {
     use crate::base::errors::Errors::{ONLY_CREATOR_CAN_CLOSE, PROJECT_NOT_FOUND};
     use crate::base::types::{Escrow, Project};
     use super::IMockUsdcDispatcherTrait;
-
-    use openzeppelin::introspection::src5::SRC5Component;
-    use openzeppelin::access::accesscontrol::{AccessControlComponent};
-    use openzeppelin::access::ownable::OwnableComponent;
 
     component!(path: OwnableComponent, storage: ownable, event: OwnableEvent);
     component!(path: AccessControlComponent, storage: accesscontrol, event: AccessControlEvent);
@@ -52,8 +51,8 @@ mod Fortichain {
         completed_projects: Map<u256, bool>,
         in_progress_projects: Map<u256, bool>,
         strk_token_address: ContractAddress,
-        contributor_reports:Map<(ContractAddress, u256), felt252>,
-         // the persons contract address and the project and a link to the full report description
+        contributor_reports: Map<(ContractAddress, u256), felt252>,
+        // the persons contract address and the project and a link to the full report description
         #[substorage(v0)]
         ownable: OwnableComponent::Storage,
         #[substorage(v0)]
@@ -469,18 +468,15 @@ mod Fortichain {
             let project: Project = self.projects.read(project_id);
             let caller = get_caller_address();
             assert(project.id > 0, PROJECT_NOT_FOUND);
-
         }
-    
+
         fn pay_an_approved_report(
             ref self: ContractState, project_id: u256, amount: u256, report_id: u256,
-        ) {
-
-        }
+        ) {}
 
 
         fn set_role(
-            ref self: ContractState, recipient: ContractAddress, role: felt252, is_enable: bool
+            ref self: ContractState, recipient: ContractAddress, role: felt252, is_enable: bool,
         ) {
             self._set_role(recipient, role, is_enable);
         }
@@ -555,7 +551,7 @@ mod Fortichain {
         }
 
         fn _set_role(
-            ref self: ContractState, recipient: ContractAddress, role: felt252, is_enable: bool
+            ref self: ContractState, recipient: ContractAddress, role: felt252, is_enable: bool,
         ) {
             self.ownable.assert_only_owner();
             self.accesscontrol.assert_only_role(VALIDATOR_ROLE);
@@ -566,7 +562,5 @@ mod Fortichain {
                 self.accesscontrol._revoke_role(role, recipient);
             }
         }
-
-        
     }
 }
