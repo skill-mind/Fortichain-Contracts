@@ -52,10 +52,11 @@ mod Fortichain {
         in_progress_projects: Map<u256, bool>,
         strk_token_address: ContractAddress,
         contributor_reports: Map<(ContractAddress, u256), (felt252, bool)>,
-        approved_contributor_reports: Map<u256, Vec<ContractAddress>>,
         // the persons contract address and the project and
         // a link to the full report description and
         //  a status that only the validator can change
+        approved_contributor_reports: Map<u256, Vec<ContractAddress>>,
+        // project id and a list of the approved contributors
         paid_contributors: Map<(u256, ContractAddress), bool>,
         #[substorage(v0)]
         ownable: OwnableComponent::Storage,
@@ -464,14 +465,12 @@ mod Fortichain {
             let caller = get_caller_address();
             assert(project.id > 0, PROJECT_NOT_FOUND);
             self.contributor_reports.write((caller, project_id), (link_to_work, false));
+
             true
         }
 
         fn approve_a_report(
-            ref self: ContractState,
-            project_id: u256,
-            report_id: u256,
-            submit_address: ContractAddress,
+            ref self: ContractState, project_id: u256, submit_address: ContractAddress,
         ) {
             self.accesscontrol.assert_only_role(VALIDATOR_ROLE);
             let project: Project = self.projects.read(project_id);
@@ -483,14 +482,13 @@ mod Fortichain {
             y = true;
             self.contributor_reports.write((submit_address, project_id), (x, y));
 
-            self.approved_contributor_reports.entry(report_id).append().write(submit_address);
+            self.approved_contributor_reports.entry(project_id).append().write(submit_address);
         }
 
         fn pay_an_approved_report(
             ref self: ContractState,
             project_id: u256,
             amount: u256,
-            report_id: u256,
             submitter_Address: ContractAddress,
         ) {
             assert(amount > 0, 'Invalid fund amount');
@@ -509,7 +507,7 @@ mod Fortichain {
 
             // assert that the contract address is listed as one of he approved contributors
             let mut found: bool = false;
-            let report_vec = self.approved_contributor_reports.entry(report_id);
+            let report_vec = self.approved_contributor_reports.entry(project_id);
             let len = report_vec.len();
             let mut i: u64 = 0;
 
@@ -546,6 +544,46 @@ mod Fortichain {
         }
         fn is_validator(self: @ContractState, role: felt252, address: ContractAddress) -> bool {
             self.accesscontrol.has_role(role, address)
+        }
+        fn get_contributor_report(
+            ref self: ContractState, project_id: u256, submitter_address: ContractAddress,
+        ) -> (felt252, bool) {
+            let project: Project = self.projects.read(project_id);
+            assert(project.id > 0, PROJECT_NOT_FOUND);
+
+            let (x, y): (felt252, bool) = self
+                .contributor_reports
+                .read((submitter_address, project_id));
+
+            (x, y)
+        }
+        fn get_list_of_approved_contributors(
+            ref self: ContractState, project_id: u256,
+        ) -> Array<ContractAddress> {
+            let project: Project = self.projects.read(project_id);
+            assert(project.id > 0, PROJECT_NOT_FOUND);
+
+            let report_vec = self.approved_contributor_reports.entry(project_id);
+            let len = report_vec.len();
+            let mut i: u64 = 0;
+            let mut approved_contributors = ArrayTrait::new();
+
+            while i < len {
+                let address = report_vec.at(i).read();
+                approved_contributors.append(address);
+                i += 1;
+            }
+            approved_contributors
+        }
+
+        fn get_contributor_paid_status(
+            ref self: ContractState, project_id: u256, submitter_address: ContractAddress,
+        ) -> bool {
+            let project: Project = self.projects.read(project_id);
+            assert(project.id > 0, PROJECT_NOT_FOUND);
+
+            let paid_report: bool = self.paid_contributors.read((project_id, submitter_address));
+            paid_report
         }
     }
     #[generate_trait]
