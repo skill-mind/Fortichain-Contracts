@@ -65,7 +65,12 @@ pub trait IFortichain<TContractState> {
 
     fn submit_report(ref self: TContractState, project_id: u256, link_to_work: felt252) -> bool;
 
-    fn approve_a_report(ref self: TContractState, project_id: u256, report_id: u256);
+    fn approve_a_report(
+        ref self: TContractState,
+        project_id: u256,
+        report_id: u256,
+        submit_address: ContractAddress,
+    );
 
     fn pay_an_approved_report(
         ref self: TContractState, project_id: u256, amount: u256, report_id: u256,

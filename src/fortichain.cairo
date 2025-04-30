@@ -51,8 +51,12 @@ mod Fortichain {
         completed_projects: Map<u256, bool>,
         in_progress_projects: Map<u256, bool>,
         strk_token_address: ContractAddress,
-        contributor_reports: Map<(ContractAddress, u256), felt252>,
-        // the persons contract address and the project and a link to the full report description
+        contributor_reports: Map<(ContractAddress, u256), (felt252, bool)>,
+        approved_contributor_reports: Map<u256, Vec<ContractAddress>>,
+        // the persons contract address and the project and
+        // a link to the full report description and
+        //  a status that only the validator can change
+        paid_contributors: Map<(u256, ContractAddress), bool>,
         #[substorage(v0)]
         ownable: OwnableComponent::Storage,
         #[substorage(v0)]
@@ -459,20 +463,71 @@ mod Fortichain {
             let project: Project = self.projects.read(project_id);
             let caller = get_caller_address();
             assert(project.id > 0, PROJECT_NOT_FOUND);
-            self.contributor_reports.write((caller, project_id), link_to_work);
+            self.contributor_reports.write((caller, project_id), (link_to_work, false));
             true
         }
 
-        fn approve_a_report(ref self: ContractState, project_id: u256, report_id: u256) {
+        fn approve_a_report(
+            ref self: ContractState,
+            project_id: u256,
+            report_id: u256,
+            submit_address: ContractAddress,
+        ) {
             self.accesscontrol.assert_only_role(VALIDATOR_ROLE);
             let project: Project = self.projects.read(project_id);
-            let caller = get_caller_address();
             assert(project.id > 0, PROJECT_NOT_FOUND);
+            let (x, mut y): (felt252, bool) = self
+                .contributor_reports
+                .read((submit_address, project_id));
+
+            y = true;
+            self.contributor_reports.write((submit_address, project_id), (x, y));
+
+            let mut approved_reports: Vec<ContractAddress> = self
+                .approved_contributor_reports
+                .read(project_id);
+
+            approved_reports.push(submit_address);
+            self.approved_contributor_reports.write(project_id, approved_reports);
         }
 
         fn pay_an_approved_report(
             ref self: ContractState, project_id: u256, amount: u256, report_id: u256,
-        ) {}
+        ) {
+            assert(amount > 0, 'Invalid fund amount');
+            let caller = get_caller_address();
+
+            let mut project: Project = self.view_project(project_id);
+            assert(project.creator_address == caller, 'Only project owner can pay');
+            assert(project.is_active, 'Project not active');
+
+            // assert that the report_id has been approved
+            let mut approved_reports: Vec<ContractAddress> = self
+                .approved_contributor_reports
+                .read(project_id);
+            let mut found = false;
+            for i in 0..approved_reports.len() {
+                if approved_reports[i] == caller {
+                    found = true;
+                    break;
+                }
+            }
+
+            assert(found, 'Report not approved');
+
+            // assert that the report_id has not been paid
+            let mut paid_report: bool = self.paid_contributors.read((project_id, caller));
+            assert(!paid_report, 'Report already paid');
+            paid_report = true;
+            self.paid_contributors.write((project_id, caller), paid_report);
+
+            let timestamp: u64 = get_block_timestamp();
+            project.updated_at = timestamp;
+            self.projects.write(project_id, project);
+
+            let success = self.process_payment(caller, amount, receiver);
+            assert(success, 'Tokens transfer failed');
+        }
 
 
         fn set_role(
