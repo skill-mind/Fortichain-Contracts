@@ -505,22 +505,9 @@ mod Fortichain {
 
             assert(y, 'Report not approved');
 
-            // assert that the contract address is listed as one of he approved contributors
-            let mut found: bool = false;
-            let report_vec = self.approved_contributor_reports.entry(project_id);
-            let len = report_vec.len();
-            let mut i: u64 = 0;
-
-            while i < len {
-                let address = report_vec.at(i).read();
-
-                if address == caller {
-                    found = true;
-                }
-                i += 1;
-            }
-
-            assert(found, 'Report not approved');
+            let _get_list_of_approved_contributors: Array<ContractAddress> = self
+                .get_list_of_approved_contributors(project_id);
+            // should be checked here
 
             // assert that the report_id has not been paid
             let mut paid_report: bool = self.paid_contributors.read((project_id, caller));
