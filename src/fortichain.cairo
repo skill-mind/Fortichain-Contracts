@@ -483,16 +483,15 @@ mod Fortichain {
             y = true;
             self.contributor_reports.write((submit_address, project_id), (x, y));
 
-            let mut approved_reports: Vec<ContractAddress> = self
-                .approved_contributor_reports
-                .read(project_id);
-
-            approved_reports.push(submit_address);
-            self.approved_contributor_reports.write(project_id, approved_reports);
+            self.approved_contributor_reports.entry(report_id).append().write(submit_address);
         }
 
         fn pay_an_approved_report(
-            ref self: ContractState, project_id: u256, amount: u256, report_id: u256,
+            ref self: ContractState,
+            project_id: u256,
+            amount: u256,
+            report_id: u256,
+            submitter_Address: ContractAddress,
         ) {
             assert(amount > 0, 'Invalid fund amount');
             let caller = get_caller_address();
@@ -501,16 +500,26 @@ mod Fortichain {
             assert(project.creator_address == caller, 'Only project owner can pay');
             assert(project.is_active, 'Project not active');
 
-            // assert that the report_id has been approved
-            let mut approved_reports: Vec<ContractAddress> = self
-                .approved_contributor_reports
-                .read(project_id);
-            let mut found = false;
-            for i in 0..approved_reports.len() {
-                if approved_reports[i] == caller {
+            // get the owner of the report approve status
+            let (_, mut y): (felt252, bool) = self
+                .contributor_reports
+                .read((submitter_Address, project_id));
+
+            assert(y, 'Report not approved');
+
+            // assert that the contract address is listed as one of he approved contributors
+            let mut found: bool = false;
+            let report_vec = self.approved_contributor_reports.entry(report_id);
+            let len = report_vec.len();
+            let mut i: u64 = 0;
+
+            while i < len {
+                let address = report_vec.at(i).read();
+
+                if address == caller {
                     found = true;
-                    break;
                 }
+                i += 1;
             }
 
             assert(found, 'Report not approved');
@@ -525,7 +534,7 @@ mod Fortichain {
             project.updated_at = timestamp;
             self.projects.write(project_id, project);
 
-            let success = self.process_payment(caller, amount, receiver);
+            let success = self.process_payment(get_contract_address(), amount, submitter_Address);
             assert(success, 'Tokens transfer failed');
         }
 

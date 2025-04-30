@@ -73,7 +73,11 @@ pub trait IFortichain<TContractState> {
     );
 
     fn pay_an_approved_report(
-        ref self: TContractState, project_id: u256, amount: u256, report_id: u256,
+        ref self: TContractState,
+        project_id: u256,
+        amount: u256,
+        report_id: u256,
+        submitter_Address: ContractAddress,
     );
 
     fn set_role(
