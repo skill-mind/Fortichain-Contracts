@@ -456,9 +456,12 @@ mod Fortichain {
             let token = self.strk_token_address.read();
 
             let erc20_dispatcher = super::IMockUsdcDispatcher { contract_address: token };
-            erc20_dispatcher.approve_user(get_contract_address(), amount);
-            let contract_allowance = erc20_dispatcher.get_allowance(payer, get_contract_address());
-            assert(contract_allowance >= amount, 'INSUFFICIENT_ALLOWANCE');
+            if payer != get_contract_address() {
+                erc20_dispatcher.approve_user(get_contract_address(), amount);
+                let contract_allowance = erc20_dispatcher
+                    .get_allowance(payer, get_contract_address());
+                assert(contract_allowance >= amount, 'Insufficient funds');
+            }
             let user_bal = erc20_dispatcher.get_balance(payer);
             assert(user_bal >= amount, 'Insufficient funds');
             let success = erc20_dispatcher.transferFrom(payer, recipient, amount);

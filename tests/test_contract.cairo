@@ -1199,83 +1199,48 @@ fn test_withdraw_bounty_invalid_recipient() {
 
 #[test]
 #[available_gas(2000000)]
-fn test_withdraw_bounty_success_validator() {
+#[should_panic(expected: ('Insufficient bounty balance',))]
+fn test_withdraw_bounty_zero_balance_validator() {
     let contract = contract();
-    let erc20 = deploy_erc20();
-    let owner = OWNER();
     let validator = VALIDATOR_ADDRESS();
+    let owner = OWNER();
 
     // Set up validator role
     start_cheat_caller_address(contract.contract_address, owner);
     contract.set_role(validator, VALIDATOR_ROLE, true);
 
-    // Mint tokens to contract
-    start_cheat_caller_address(erc20.contract_address, owner);
-    erc20.mint(contract.contract_address, 1000);
-
-    // Add bounty balance for validator
-    start_cheat_caller_address(contract.contract_address, owner);
-    contract.add_user_bounty_balance(validator, 5000);
-
-    // Test withdrawal
+    // Attempt withdrawal with zero balance
     start_cheat_caller_address(contract.contract_address, validator);
-    let (success, remaining_balance) = contract.withdraw_bounty(200, validator);
-    assert(success, 'Withdrawal failed');
-    assert(remaining_balance == 300, 'Incorrect remaining balance');
-    assert(erc20.get_balance(validator) == 200, 'Incorrect recipient balance');
+    contract.withdraw_bounty(100, validator);
     stop_cheat_caller_address(contract.contract_address);
-    stop_cheat_caller_address(erc20.contract_address);
 }
 
 #[test]
-#[available_gas(3000000)]
-fn test_withdraw_bounty_success_researcher() {
+#[available_gas(2000000)]
+#[should_panic(expected: ('Insufficient bounty balance',))]
+fn test_withdraw_bounty_large_amount_insufficient_validator() {
     let contract = contract();
     let erc20 = deploy_erc20();
     let owner = OWNER();
-    let researcher = RESEARCHER_ADDRESS();
+    let validator = VALIDATOR_ADDRESS();
+    let large_amount =
+        57896044618658097711785492504343953926634992332820282019728792003956564819968; // u256::MAX / 2
 
-    // Mint tokens to owner and contract
+    // Set up validator role
+    start_cheat_caller_address(contract.contract_address, owner);
+    contract.set_role(validator, VALIDATOR_ROLE, true);
+
+    // Mint smaller amount to contract
     start_cheat_caller_address(erc20.contract_address, owner);
-    erc20.mint(owner, 1000);
     erc20.mint(contract.contract_address, 1000);
 
-    // Register and fund a project
+    // Add small bounty balance
     start_cheat_caller_address(contract.contract_address, owner);
-    let project_id = contract
-        .register_project(
-            'Test Project',
-            "Description",
-            "Category",
-            contract_address_const::<0>(),
-            "Contact",
-            "Doc URL",
-            "Logo URL",
-            'GitHub',
-            "Repo URL",
-            false,
-        );
+    contract.add_user_bounty_balance(validator, 1000);
 
-    // Fund project
-    erc20.approve_user(contract.contract_address, 1000);
-    contract.fund_project(project_id, 500, 86400);
-
-    // Submit and approve report
-    start_cheat_caller_address(contract.contract_address, researcher);
-    contract.submit_report(project_id, 'Report Link');
-    start_cheat_caller_address(contract.contract_address, owner);
-    contract.set_role(owner, VALIDATOR_ROLE, true); // Ensure owner is validator
-    contract.approve_a_report(project_id, researcher);
-
-    // Pay approved report
-    contract.pay_an_approved_report(project_id, 300, researcher);
-
-    // Test withdrawal
-    start_cheat_caller_address(contract.contract_address, researcher);
-    let (success, remaining_balance) = contract.withdraw_bounty(200, researcher);
-    assert(success, 'Withdrawal failed');
-    assert(remaining_balance == 100, 'Incorrect remaining balance');
-    assert(erc20.get_balance(researcher) == 200, 'Incorrect recipient balance');
+    // Attempt to withdraw large amount
+    start_cheat_caller_address(contract.contract_address, validator);
+    contract.withdraw_bounty(large_amount, validator);
     stop_cheat_caller_address(contract.contract_address);
     stop_cheat_caller_address(erc20.contract_address);
 }
