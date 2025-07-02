@@ -1,6 +1,5 @@
 use core::felt252;
 use core::traits::Into;
-use fortichain_contracts::base::types::Project;
 use fortichain_contracts::interfaces::IFortichain::{
     IFortichainDispatcher, IFortichainDispatcherTrait,
 };
@@ -9,10 +8,7 @@ use snforge_std::{
     ContractClassTrait, DeclareResultTrait, declare, start_cheat_block_timestamp,
     start_cheat_caller_address, stop_cheat_caller_address,
 };
-use starknet::{
-    ClassHash, ContractAddress, contract_address_const, get_block_timestamp, get_caller_address,
-    get_contract_address,
-};
+use starknet::{ContractAddress, contract_address_const, get_block_timestamp};
 
 // use starknet::testing::warp;
 

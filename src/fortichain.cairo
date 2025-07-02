@@ -2,21 +2,16 @@ use fortichain_contracts::interfaces::IMockUsdc::{IMockUsdcDispatcher, IMockUsdc
 #[starknet::contract]
 mod Fortichain {
     use core::array::{Array, ArrayTrait};
-    use core::num::traits::Zero;
-    use core::option::OptionTrait;
     use core::traits::Into;
-    use fortichain_contracts::MockUsdc::MockUsdc;
     use fortichain_contracts::interfaces::IFortichain::IFortichain;
     use openzeppelin::access::accesscontrol::AccessControlComponent;
     use openzeppelin::access::ownable::OwnableComponent;
     use openzeppelin::introspection::src5::SRC5Component;
     use starknet::storage::{
-        Map, Mutable, MutableVecTrait, StorageBase, StorageMapReadAccess, StorageMapWriteAccess,
-        StoragePathEntry, StoragePointerReadAccess, StoragePointerWriteAccess, Vec, VecTrait,
+        Map, MutableVecTrait, StorageMapReadAccess, StorageMapWriteAccess, StoragePathEntry,
+        StoragePointerReadAccess, StoragePointerWriteAccess, Vec,
     };
-    use starknet::{
-        ClassHash, ContractAddress, get_block_timestamp, get_caller_address, get_contract_address,
-    };
+    use starknet::{ContractAddress, get_block_timestamp, get_caller_address, get_contract_address};
     use crate::base::errors::Errors::{ONLY_CREATOR_CAN_CLOSE, PROJECT_NOT_FOUND};
     use crate::base::types::{Escrow, Project};
     use super::IMockUsdcDispatcherTrait;
@@ -573,7 +568,7 @@ mod Fortichain {
                 let address = report_vec.at(i).read();
                 approved_contributors.append(address);
                 i += 1;
-            };
+            }
             approved_contributors
         }
 
@@ -658,9 +653,9 @@ mod Fortichain {
             while i <= project_count {
                 if self.completed_projects.read(i) {
                     projects.append(i);
-                };
+                }
                 i += 1;
-            };
+            }
             projects
         }
 
@@ -671,9 +666,9 @@ mod Fortichain {
             while i <= project_count {
                 if self.in_progress_projects.read(i) {
                     projects.append(i);
-                };
+                }
                 i += 1;
-            };
+            }
             projects
         }
 
@@ -691,7 +686,7 @@ mod Fortichain {
                 let project_id = *project_ids[i];
                 let project = self.projects.read(project_id);
                 projects.append(project);
-            };
+            }
             projects
         }
 
@@ -743,7 +738,7 @@ mod Fortichain {
                     break;
                 }
                 i += 1;
-            };
+            }
             result
         }
     }
