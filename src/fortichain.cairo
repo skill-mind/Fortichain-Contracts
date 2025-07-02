@@ -56,6 +56,8 @@ mod Fortichain {
         // a link to the full report description and
         //  a status that only the validator can change
         approved_contributor_reports: Map<u256, Vec<ContractAddress>>,
+        user_bounty_balances: Map<ContractAddress, u256>, // Tracks available bounties per user
+        contract_paused: bool, // Pause state for emergency control
         // project id and a list of the approved contributors
         paid_contributors: Map<(u256, ContractAddress), bool>,
         #[substorage(v0)]
@@ -73,6 +75,7 @@ mod Fortichain {
         EscrowCreated: EscrowCreated,
         EscrowFundingPulled: EscrowFundingPulled,
         EscrowFundsAdded: EscrowFundsAdded,
+        BountyWithdrawn: BountyWithdrawn,
         #[flat]
         OwnableEvent: OwnableComponent::Event,
         #[flat]
@@ -107,6 +110,14 @@ mod Fortichain {
     pub struct EscrowFundingPulled {
         pub escrow_id: u256,
         pub owner: ContractAddress,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct BountyWithdrawn {
+        pub user: ContractAddress,
+        pub amount: u256,
+        pub recipient: ContractAddress,
+        pub timestamp: u64,
     }
 
     const VALIDATOR_ROLE: felt252 = selector!("VALIDATOR_ROLE");
@@ -559,7 +570,7 @@ mod Fortichain {
                 let address = report_vec.at(i).read();
                 approved_contributors.append(address);
                 i += 1;
-            }
+            };
             approved_contributors
         }
 
@@ -572,28 +583,94 @@ mod Fortichain {
             let paid_report: bool = self.paid_contributors.read((project_id, submitter_address));
             paid_report
         }
+
+        fn pause(ref self: ContractState) {
+            self.ownable.assert_only_owner();
+            self.contract_paused.write(true);
+        }
+
+        fn unpause(ref self: ContractState) {
+            self.ownable.assert_only_owner();
+            self.contract_paused.write(false);
+        }
+
+
+        fn withdraw_bounty(
+            ref self: ContractState, amount: u256, recipient: ContractAddress,
+        ) -> (bool, u256) {
+            // Check if contract is paused
+            assert(!self.contract_paused.read(), 'Contract is paused');
+
+            let caller = get_caller_address();
+            // Verify recipient is the caller (prevents unauthorized transfers)
+            assert(caller == recipient, 'Invalid recipient address');
+
+            // Check if caller is a validator or has an approved report
+            let is_validator = self.accesscontrol.has_role(VALIDATOR_ROLE, caller);
+            let has_approved_report = self.has_approved_report(caller);
+            assert(is_validator || has_approved_report, 'Unauthorized: Not validator');
+
+            // Validate amount
+            assert(amount > 0, 'Invalid withdrawal amount');
+            let available_balance = self.user_bounty_balances.read(caller);
+            assert(available_balance >= amount, 'Insufficient bounty balance');
+
+            // Prevent reentrancy by updating balance first
+            let new_balance = available_balance - amount;
+            self.user_bounty_balances.write(caller, new_balance);
+
+            // Process payment
+            let success = self.process_payment(get_contract_address(), amount, recipient);
+            assert(success, 'Transfer failed');
+
+            // Emit event
+            let timestamp = get_block_timestamp();
+            self
+                .emit(
+                    Event::BountyWithdrawn(
+                        BountyWithdrawn {
+                            user: caller,
+                            amount: amount,
+                            recipient: recipient,
+                            timestamp: timestamp,
+                        },
+                    ),
+                );
+
+            (true, new_balance)
+        }
+        fn add_user_bounty_balance(ref self: ContractState, user: ContractAddress, amount: u256) {
+            self.ownable.assert_only_owner();
+            assert(amount > 0, 'Invalid amount');
+            let current_balance = self.user_bounty_balances.read(user);
+            self.user_bounty_balances.write(user, current_balance + amount);
+        }
     }
     #[generate_trait]
     impl InternalFunctions of InternalFunctionsTrait {
         fn get_completed_projects_as_array(self: @ContractState) -> Array<u256> {
             let mut projects = ArrayTrait::new();
             let project_count = self.project_count.read();
-            for i in 1..=project_count {
+            let mut i: u256 = 1;
+            while i <= project_count {
                 if self.completed_projects.read(i) {
                     projects.append(i);
-                }
-            }
+                };
+                i += 1;
+            };
             projects
         }
 
         fn get_in_progress_projects_as_array(self: @ContractState) -> Array<u256> {
             let mut projects = ArrayTrait::new();
             let project_count = self.project_count.read();
-            for i in 1..=project_count {
+            let mut i: u256 = 1;
+            while i <= project_count {
                 if self.in_progress_projects.read(i) {
                     projects.append(i);
-                }
-            }
+                };
+                i += 1;
+            };
             projects
         }
 
@@ -611,7 +688,7 @@ mod Fortichain {
                 let project_id = *project_ids[i];
                 let project = self.projects.read(project_id);
                 projects.append(project);
-            }
+            };
             projects
         }
 
@@ -650,6 +727,21 @@ mod Fortichain {
             } else {
                 self.accesscontrol._revoke_role(role, recipient);
             }
+        }
+
+        fn has_approved_report(self: @ContractState, user: ContractAddress) -> bool {
+            let project_count = self.project_count.read();
+            let mut i: u256 = 1;
+            let mut result: bool = false;
+            while i <= project_count {
+                let (_link, approved) = self.contributor_reports.read((user, i));
+                if approved {
+                    result = true;
+                    break;
+                }
+                i += 1;
+            };
+            result
         }
     }
 }

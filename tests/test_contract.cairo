@@ -48,6 +48,10 @@ fn VALIDATOR_ADDRESS() -> ContractAddress {
     'VALIDATOR_ADDRESS'.try_into().unwrap()
 }
 
+fn RESEARCHER_ADDRESS() -> ContractAddress {
+    'RESEARCHER'.try_into().unwrap()
+}
+
 const VALIDATOR_ROLE: felt252 = selector!("VALIDATOR_ROLE");
 const INVALID_ROLE: felt252 = selector!("INVALID_ROLE");
 
@@ -1135,4 +1139,143 @@ fn test_successful_pay_of_an_approved_validator() {
 
     let payment_status: bool = contract.get_contributor_paid_status(id, submitter_address);
     assert(payment_status, 'Failed to pay the contributor');
+}
+
+#[test]
+#[available_gas(2000000)]
+#[should_panic(expected: ('Unauthorized: Not validator',))]
+fn test_withdraw_bounty_unauthorized() {
+    let contract = contract();
+    let unauthorized = contract_address_const::<3>();
+
+    // Try to withdraw without role or approved report
+    start_cheat_caller_address(contract.contract_address, unauthorized);
+    contract.withdraw_bounty(100, unauthorized);
+    stop_cheat_caller_address(contract.contract_address);
+}
+
+#[test]
+#[available_gas(2000000)]
+#[should_panic(expected: ('Insufficient bounty balance',))]
+fn test_withdraw_bounty_insufficient_balance() {
+    let contract = contract();
+    let validator = VALIDATOR_ADDRESS();
+    let owner = OWNER();
+
+    // Set up validator role
+    start_cheat_caller_address(contract.contract_address, owner);
+    contract.set_role(validator, VALIDATOR_ROLE, true);
+
+    // Try to withdraw with zero balance
+    start_cheat_caller_address(contract.contract_address, validator);
+    contract.withdraw_bounty(100, validator);
+    stop_cheat_caller_address(contract.contract_address);
+}
+
+#[test]
+#[available_gas(2000000)]
+#[should_panic(expected: ('Invalid recipient address',))]
+fn test_withdraw_bounty_invalid_recipient() {
+    let contract = contract();
+    let erc20 = deploy_erc20();
+    let validator = VALIDATOR_ADDRESS();
+    let owner = OWNER();
+    let other_address = contract_address_const::<3>();
+
+    // Set up validator role and balance
+    start_cheat_caller_address(contract.contract_address, owner);
+    contract.set_role(validator, VALIDATOR_ROLE, true);
+    start_cheat_caller_address(erc20.contract_address, owner);
+    erc20.mint(contract.contract_address, 1000);
+    start_cheat_caller_address(contract.contract_address, owner);
+    contract.add_user_bounty_balance(validator, 500);
+
+    // Try to withdraw to a different address
+    start_cheat_caller_address(contract.contract_address, validator);
+    contract.withdraw_bounty(200, other_address);
+    stop_cheat_caller_address(contract.contract_address);
+    stop_cheat_caller_address(erc20.contract_address);
+}
+
+#[test]
+#[available_gas(2000000)]
+fn test_withdraw_bounty_success_validator() {
+    let contract = contract();
+    let erc20 = deploy_erc20();
+    let owner = OWNER();
+    let validator = VALIDATOR_ADDRESS();
+
+    // Set up validator role
+    start_cheat_caller_address(contract.contract_address, owner);
+    contract.set_role(validator, VALIDATOR_ROLE, true);
+
+    // Mint tokens to contract
+    start_cheat_caller_address(erc20.contract_address, owner);
+    erc20.mint(contract.contract_address, 1000);
+
+    // Add bounty balance for validator
+    start_cheat_caller_address(contract.contract_address, owner);
+    contract.add_user_bounty_balance(validator, 5000);
+
+    // Test withdrawal
+    start_cheat_caller_address(contract.contract_address, validator);
+    let (success, remaining_balance) = contract.withdraw_bounty(200, validator);
+    assert(success, 'Withdrawal failed');
+    assert(remaining_balance == 300, 'Incorrect remaining balance');
+    assert(erc20.get_balance(validator) == 200, 'Incorrect recipient balance');
+    stop_cheat_caller_address(contract.contract_address);
+    stop_cheat_caller_address(erc20.contract_address);
+}
+
+#[test]
+#[available_gas(3000000)]
+fn test_withdraw_bounty_success_researcher() {
+    let contract = contract();
+    let erc20 = deploy_erc20();
+    let owner = OWNER();
+    let researcher = RESEARCHER_ADDRESS();
+
+    // Mint tokens to owner and contract
+    start_cheat_caller_address(erc20.contract_address, owner);
+    erc20.mint(owner, 1000);
+    erc20.mint(contract.contract_address, 1000);
+
+    // Register and fund a project
+    start_cheat_caller_address(contract.contract_address, owner);
+    let project_id = contract
+        .register_project(
+            'Test Project',
+            "Description",
+            "Category",
+            contract_address_const::<0>(),
+            "Contact",
+            "Doc URL",
+            "Logo URL",
+            'GitHub',
+            "Repo URL",
+            false,
+        );
+
+    // Fund project
+    erc20.approve_user(contract.contract_address, 1000);
+    contract.fund_project(project_id, 500, 86400);
+
+    // Submit and approve report
+    start_cheat_caller_address(contract.contract_address, researcher);
+    contract.submit_report(project_id, 'Report Link');
+    start_cheat_caller_address(contract.contract_address, owner);
+    contract.set_role(owner, VALIDATOR_ROLE, true); // Ensure owner is validator
+    contract.approve_a_report(project_id, researcher);
+
+    // Pay approved report
+    contract.pay_an_approved_report(project_id, 300, researcher);
+
+    // Test withdrawal
+    start_cheat_caller_address(contract.contract_address, researcher);
+    let (success, remaining_balance) = contract.withdraw_bounty(200, researcher);
+    assert(success, 'Withdrawal failed');
+    assert(remaining_balance == 100, 'Incorrect remaining balance');
+    assert(erc20.get_balance(researcher) == 200, 'Incorrect recipient balance');
+    stop_cheat_caller_address(contract.contract_address);
+    stop_cheat_caller_address(erc20.contract_address);
 }
