@@ -92,5 +92,11 @@ pub trait IFortichain<TContractState> {
     fn get_contributor_paid_status(
         ref self: TContractState, project_id: u256, submitter_address: ContractAddress,
     ) -> bool;
+    fn withdraw_bounty(
+        ref self: TContractState, amount: u256, recipient: ContractAddress,
+    ) -> (bool, u256);
+    fn pause(ref self: TContractState);
+    fn unpause(ref self: TContractState);
+    fn add_user_bounty_balance(ref self: TContractState, user: ContractAddress, amount: u256);
 }
 

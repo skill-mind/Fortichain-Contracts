@@ -2,21 +2,16 @@ use fortichain_contracts::interfaces::IMockUsdc::{IMockUsdcDispatcher, IMockUsdc
 #[starknet::contract]
 mod Fortichain {
     use core::array::{Array, ArrayTrait};
-    use core::num::traits::Zero;
-    use core::option::OptionTrait;
     use core::traits::Into;
-    use fortichain_contracts::MockUsdc::MockUsdc;
     use fortichain_contracts::interfaces::IFortichain::IFortichain;
     use openzeppelin::access::accesscontrol::AccessControlComponent;
     use openzeppelin::access::ownable::OwnableComponent;
     use openzeppelin::introspection::src5::SRC5Component;
     use starknet::storage::{
-        Map, Mutable, MutableVecTrait, StorageBase, StorageMapReadAccess, StorageMapWriteAccess,
-        StoragePathEntry, StoragePointerReadAccess, StoragePointerWriteAccess, Vec, VecTrait,
+        Map, MutableVecTrait, StorageMapReadAccess, StorageMapWriteAccess, StoragePathEntry,
+        StoragePointerReadAccess, StoragePointerWriteAccess, Vec,
     };
-    use starknet::{
-        ClassHash, ContractAddress, get_block_timestamp, get_caller_address, get_contract_address,
-    };
+    use starknet::{ContractAddress, get_block_timestamp, get_caller_address, get_contract_address};
     use crate::base::errors::Errors::{ONLY_CREATOR_CAN_CLOSE, PROJECT_NOT_FOUND};
     use crate::base::types::{Escrow, Project};
     use super::IMockUsdcDispatcherTrait;
@@ -56,6 +51,8 @@ mod Fortichain {
         // a link to the full report description and
         //  a status that only the validator can change
         approved_contributor_reports: Map<u256, Vec<ContractAddress>>,
+        user_bounty_balances: Map<ContractAddress, u256>, // Tracks available bounties per user
+        contract_paused: bool, // Pause state for emergency control
         // project id and a list of the approved contributors
         paid_contributors: Map<(u256, ContractAddress), bool>,
         #[substorage(v0)]
@@ -73,6 +70,7 @@ mod Fortichain {
         EscrowCreated: EscrowCreated,
         EscrowFundingPulled: EscrowFundingPulled,
         EscrowFundsAdded: EscrowFundsAdded,
+        BountyWithdrawn: BountyWithdrawn,
         #[flat]
         OwnableEvent: OwnableComponent::Event,
         #[flat]
@@ -107,6 +105,14 @@ mod Fortichain {
     pub struct EscrowFundingPulled {
         pub escrow_id: u256,
         pub owner: ContractAddress,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct BountyWithdrawn {
+        pub user: ContractAddress,
+        pub amount: u256,
+        pub recipient: ContractAddress,
+        pub timestamp: u64,
     }
 
     const VALIDATOR_ROLE: felt252 = selector!("VALIDATOR_ROLE");
@@ -445,9 +451,12 @@ mod Fortichain {
             let token = self.strk_token_address.read();
 
             let erc20_dispatcher = super::IMockUsdcDispatcher { contract_address: token };
-            erc20_dispatcher.approve_user(get_contract_address(), amount);
-            let contract_allowance = erc20_dispatcher.get_allowance(payer, get_contract_address());
-            assert(contract_allowance >= amount, 'INSUFFICIENT_ALLOWANCE');
+            if payer != get_contract_address() {
+                erc20_dispatcher.approve_user(get_contract_address(), amount);
+                let contract_allowance = erc20_dispatcher
+                    .get_allowance(payer, get_contract_address());
+                assert(contract_allowance >= amount, 'Insufficient funds');
+            }
             let user_bal = erc20_dispatcher.get_balance(payer);
             assert(user_bal >= amount, 'Insufficient funds');
             let success = erc20_dispatcher.transferFrom(payer, recipient, amount);
@@ -572,16 +581,80 @@ mod Fortichain {
             let paid_report: bool = self.paid_contributors.read((project_id, submitter_address));
             paid_report
         }
+
+        fn pause(ref self: ContractState) {
+            self.ownable.assert_only_owner();
+            self.contract_paused.write(true);
+        }
+
+        fn unpause(ref self: ContractState) {
+            self.ownable.assert_only_owner();
+            self.contract_paused.write(false);
+        }
+
+
+        fn withdraw_bounty(
+            ref self: ContractState, amount: u256, recipient: ContractAddress,
+        ) -> (bool, u256) {
+            // Check if contract is paused
+            assert(!self.contract_paused.read(), 'Contract is paused');
+
+            let caller = get_caller_address();
+            // Verify recipient is the caller (prevents unauthorized transfers)
+            assert(caller == recipient, 'Invalid recipient address');
+
+            // Check if caller is a validator or has an approved report
+            let is_validator = self.accesscontrol.has_role(VALIDATOR_ROLE, caller);
+            let has_approved_report = self.has_approved_report(caller);
+            assert(is_validator || has_approved_report, 'Unauthorized: Not validator');
+
+            // Validate amount
+            assert(amount > 0, 'Invalid withdrawal amount');
+            let available_balance = self.user_bounty_balances.read(caller);
+            assert(available_balance >= amount, 'Insufficient bounty balance');
+
+            // Prevent reentrancy by updating balance first
+            let new_balance = available_balance - amount;
+            self.user_bounty_balances.write(caller, new_balance);
+
+            // Process payment
+            let success = self.process_payment(get_contract_address(), amount, recipient);
+            assert(success, 'Transfer failed');
+
+            // Emit event
+            let timestamp = get_block_timestamp();
+            self
+                .emit(
+                    Event::BountyWithdrawn(
+                        BountyWithdrawn {
+                            user: caller,
+                            amount: amount,
+                            recipient: recipient,
+                            timestamp: timestamp,
+                        },
+                    ),
+                );
+
+            (true, new_balance)
+        }
+        fn add_user_bounty_balance(ref self: ContractState, user: ContractAddress, amount: u256) {
+            self.ownable.assert_only_owner();
+            assert(amount > 0, 'Invalid amount');
+            let current_balance = self.user_bounty_balances.read(user);
+            self.user_bounty_balances.write(user, current_balance + amount);
+        }
     }
     #[generate_trait]
     impl InternalFunctions of InternalFunctionsTrait {
         fn get_completed_projects_as_array(self: @ContractState) -> Array<u256> {
             let mut projects = ArrayTrait::new();
             let project_count = self.project_count.read();
-            for i in 1..=project_count {
+            let mut i: u256 = 1;
+            while i <= project_count {
                 if self.completed_projects.read(i) {
                     projects.append(i);
                 }
+                i += 1;
             }
             projects
         }
@@ -589,10 +662,12 @@ mod Fortichain {
         fn get_in_progress_projects_as_array(self: @ContractState) -> Array<u256> {
             let mut projects = ArrayTrait::new();
             let project_count = self.project_count.read();
-            for i in 1..=project_count {
+            let mut i: u256 = 1;
+            while i <= project_count {
                 if self.in_progress_projects.read(i) {
                     projects.append(i);
                 }
+                i += 1;
             }
             projects
         }
@@ -650,6 +725,21 @@ mod Fortichain {
             } else {
                 self.accesscontrol._revoke_role(role, recipient);
             }
+        }
+
+        fn has_approved_report(self: @ContractState, user: ContractAddress) -> bool {
+            let project_count = self.project_count.read();
+            let mut i: u256 = 1;
+            let mut result: bool = false;
+            while i <= project_count {
+                let (_link, approved) = self.contributor_reports.read((user, i));
+                if approved {
+                    result = true;
+                    break;
+                }
+                i += 1;
+            }
+            result
         }
     }
 }
