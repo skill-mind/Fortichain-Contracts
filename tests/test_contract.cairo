@@ -1270,3 +1270,107 @@ fn test_successful_delete_report() {
 
     assert(report.report_data == " ", 'wrong report url');
 }
+
+#[test]
+#[available_gas(2000000)]
+#[should_panic(expected: ('Unauthorized: Not validator',))]
+fn test_withdraw_bounty_unauthorized() {
+    let contract = contract();
+    let unauthorized = contract_address_const::<3>();
+
+    // Try to withdraw without role or approved report
+    start_cheat_caller_address(contract.contract_address, unauthorized);
+    contract.withdraw_bounty(100, unauthorized);
+    stop_cheat_caller_address(contract.contract_address);
+}
+
+#[test]
+#[available_gas(2000000)]
+#[should_panic(expected: ('Insufficient bounty balance',))]
+fn test_withdraw_bounty_insufficient_balance() {
+    let contract = contract();
+    let validator = VALIDATOR_ADDRESS();
+    let owner = OWNER();
+
+    // Set up validator role
+    start_cheat_caller_address(contract.contract_address, owner);
+    contract.set_role(validator, VALIDATOR_ROLE, true);
+
+    // Try to withdraw with zero balance
+    start_cheat_caller_address(contract.contract_address, validator);
+    contract.withdraw_bounty(100, validator);
+    stop_cheat_caller_address(contract.contract_address);
+}
+
+#[test]
+#[available_gas(2000000)]
+#[should_panic(expected: ('Invalid recipient address',))]
+fn test_withdraw_bounty_invalid_recipient() {
+    let contract = contract();
+    let erc20 = deploy_erc20();
+    let validator = VALIDATOR_ADDRESS();
+    let owner = OWNER();
+    let other_address = contract_address_const::<3>();
+
+    // Set up validator role and balance
+    start_cheat_caller_address(contract.contract_address, owner);
+    contract.set_role(validator, VALIDATOR_ROLE, true);
+    start_cheat_caller_address(erc20.contract_address, owner);
+    erc20.mint(contract.contract_address, 1000);
+    start_cheat_caller_address(contract.contract_address, owner);
+    contract.add_user_bounty_balance(validator, 500);
+
+    // Try to withdraw to a different address
+    start_cheat_caller_address(contract.contract_address, validator);
+    contract.withdraw_bounty(200, other_address);
+    stop_cheat_caller_address(contract.contract_address);
+    stop_cheat_caller_address(erc20.contract_address);
+}
+
+#[test]
+#[available_gas(2000000)]
+#[should_panic(expected: ('Insufficient bounty balance',))]
+fn test_withdraw_bounty_zero_balance_validator() {
+    let contract = contract();
+    let validator = VALIDATOR_ADDRESS();
+    let owner = OWNER();
+
+    // Set up validator role
+    start_cheat_caller_address(contract.contract_address, owner);
+    contract.set_role(validator, VALIDATOR_ROLE, true);
+
+    // Attempt withdrawal with zero balance
+    start_cheat_caller_address(contract.contract_address, validator);
+    contract.withdraw_bounty(100, validator);
+    stop_cheat_caller_address(contract.contract_address);
+}
+
+#[test]
+#[available_gas(2000000)]
+#[should_panic(expected: ('Insufficient bounty balance',))]
+fn test_withdraw_bounty_large_amount_insufficient_validator() {
+    let contract = contract();
+    let erc20 = deploy_erc20();
+    let owner = OWNER();
+    let validator = VALIDATOR_ADDRESS();
+    let large_amount =
+        57896044618658097711785492504343953926634992332820282019728792003956564819968; // u256::MAX / 2
+
+    // Set up validator role
+    start_cheat_caller_address(contract.contract_address, owner);
+    contract.set_role(validator, VALIDATOR_ROLE, true);
+
+    // Mint smaller amount to contract
+    start_cheat_caller_address(erc20.contract_address, owner);
+    erc20.mint(contract.contract_address, 1000);
+
+    // Add small bounty balance
+    start_cheat_caller_address(contract.contract_address, owner);
+    contract.add_user_bounty_balance(validator, 1000);
+
+    // Attempt to withdraw large amount
+    start_cheat_caller_address(contract.contract_address, validator);
+    contract.withdraw_bounty(large_amount, validator);
+    stop_cheat_caller_address(contract.contract_address);
+    stop_cheat_caller_address(erc20.contract_address);
+}
