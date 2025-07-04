@@ -2,18 +2,24 @@ use fortichain_contracts::interfaces::IMockUsdc::{IMockUsdcDispatcher, IMockUsdc
 #[starknet::contract]
 mod Fortichain {
     use core::array::{Array, ArrayTrait};
+    use core::num::traits::Zero;
+    use core::option::OptionTrait;
     use core::traits::Into;
+    use fortichain_contracts::MockUsdc::MockUsdc;
     use fortichain_contracts::interfaces::IFortichain::IFortichain;
     use openzeppelin::access::accesscontrol::AccessControlComponent;
     use openzeppelin::access::ownable::OwnableComponent;
     use openzeppelin::introspection::src5::SRC5Component;
     use starknet::storage::{
-        Map, MutableVecTrait, StorageMapReadAccess, StorageMapWriteAccess, StoragePathEntry,
-        StoragePointerReadAccess, StoragePointerWriteAccess, Vec,
+        Map, Mutable, MutableVecTrait, StorageBase, StorageMapReadAccess, StorageMapWriteAccess,
+        StoragePathEntry, StoragePointerReadAccess, StoragePointerWriteAccess, Vec, VecTrait,
     };
-    use starknet::{ContractAddress, get_block_timestamp, get_caller_address, get_contract_address};
+    use starknet::{
+        ClassHash, ContractAddress, contract_address_const, get_block_timestamp, get_caller_address,
+        get_contract_address,
+    };
     use crate::base::errors::Errors::{ONLY_CREATOR_CAN_CLOSE, PROJECT_NOT_FOUND};
-    use crate::base::types::{Escrow, Project};
+    use crate::base::types::{Escrow, Project, Report};
     use super::IMockUsdcDispatcherTrait;
 
     component!(path: OwnableComponent, storage: ownable, event: OwnableEvent);
@@ -51,10 +57,10 @@ mod Fortichain {
         // a link to the full report description and
         //  a status that only the validator can change
         approved_contributor_reports: Map<u256, Vec<ContractAddress>>,
-        user_bounty_balances: Map<ContractAddress, u256>, // Tracks available bounties per user
-        contract_paused: bool, // Pause state for emergency control
         // project id and a list of the approved contributors
         paid_contributors: Map<(u256, ContractAddress), bool>,
+        report_count: u256,
+        reports: Map<u256, Report>,
         #[substorage(v0)]
         ownable: OwnableComponent::Storage,
         #[substorage(v0)]
@@ -70,7 +76,6 @@ mod Fortichain {
         EscrowCreated: EscrowCreated,
         EscrowFundingPulled: EscrowFundingPulled,
         EscrowFundsAdded: EscrowFundsAdded,
-        BountyWithdrawn: BountyWithdrawn,
         #[flat]
         OwnableEvent: OwnableComponent::Event,
         #[flat]
@@ -106,16 +111,11 @@ mod Fortichain {
         pub escrow_id: u256,
         pub owner: ContractAddress,
     }
-
-    #[derive(Drop, starknet::Event)]
-    pub struct BountyWithdrawn {
-        pub user: ContractAddress,
-        pub amount: u256,
-        pub recipient: ContractAddress,
-        pub timestamp: u64,
-    }
-
+    const PROJECT_OWNER_ROLE: felt252 = selector!("PROJECT_OWNER_ROLE");
+    const RESEARCHER_ROLE: felt252 = selector!("RESEARCHER_ROLE");
     const VALIDATOR_ROLE: felt252 = selector!("VALIDATOR_ROLE");
+    const ADMIN_ROLE: felt252 = selector!("ADMIN_ROLE");
+    const REPORT_READER: felt252 = selector!("REPORT_READER");
 
 
     #[constructor]
@@ -451,12 +451,9 @@ mod Fortichain {
             let token = self.strk_token_address.read();
 
             let erc20_dispatcher = super::IMockUsdcDispatcher { contract_address: token };
-            if payer != get_contract_address() {
-                erc20_dispatcher.approve_user(get_contract_address(), amount);
-                let contract_allowance = erc20_dispatcher
-                    .get_allowance(payer, get_contract_address());
-                assert(contract_allowance >= amount, 'Insufficient funds');
-            }
+            erc20_dispatcher.approve_user(get_contract_address(), amount);
+            let contract_allowance = erc20_dispatcher.get_allowance(payer, get_contract_address());
+            assert(contract_allowance >= amount, 'INSUFFICIENT_ALLOWANCE');
             let user_bal = erc20_dispatcher.get_balance(payer);
             assert(user_bal >= amount, 'Insufficient funds');
             let success = erc20_dispatcher.transferFrom(payer, recipient, amount);
@@ -474,7 +471,6 @@ mod Fortichain {
             let caller = get_caller_address();
             assert(project.id > 0, PROJECT_NOT_FOUND);
             self.contributor_reports.write((caller, project_id), (link_to_work, false));
-
             true
         }
 
@@ -541,18 +537,8 @@ mod Fortichain {
         fn is_validator(self: @ContractState, role: felt252, address: ContractAddress) -> bool {
             self.accesscontrol.has_role(role, address)
         }
-        fn get_contributor_report(
-            ref self: ContractState, project_id: u256, submitter_address: ContractAddress,
-        ) -> (felt252, bool) {
-            let project: Project = self.projects.read(project_id);
-            assert(project.id > 0, PROJECT_NOT_FOUND);
 
-            let (x, y): (felt252, bool) = self
-                .contributor_reports
-                .read((submitter_address, project_id));
 
-            (x, y)
-        }
         fn get_list_of_approved_contributors(
             ref self: ContractState, project_id: u256,
         ) -> Array<ContractAddress> {
@@ -582,66 +568,79 @@ mod Fortichain {
             paid_report
         }
 
-        fn pause(ref self: ContractState) {
-            self.ownable.assert_only_owner();
-            self.contract_paused.write(true);
+        fn get_contributor_report(
+            ref self: ContractState, project_id: u256, submitter_address: ContractAddress,
+        ) -> (felt252, bool) {
+            let project: Project = self.projects.read(project_id);
+            assert(project.id > 0, PROJECT_NOT_FOUND);
+
+            let (x, y): (felt252, bool) = self
+                .contributor_reports
+                .read((submitter_address, project_id));
+
+            (x, y)
         }
 
-        fn unpause(ref self: ContractState) {
-            self.ownable.assert_only_owner();
-            self.contract_paused.write(false);
-        }
-
-
-        fn withdraw_bounty(
-            ref self: ContractState, amount: u256, recipient: ContractAddress,
-        ) -> (bool, u256) {
-            // Check if contract is paused
-            assert(!self.contract_paused.read(), 'Contract is paused');
-
+        fn new_report(ref self: ContractState, project_id: u256, link_to_work: ByteArray) -> u256 {
+            let project: Project = self.projects.read(project_id);
+            assert(project.id > 0, PROJECT_NOT_FOUND);
             let caller = get_caller_address();
-            // Verify recipient is the caller (prevents unauthorized transfers)
-            assert(caller == recipient, 'Invalid recipient address');
+            let timestamp: u64 = get_block_timestamp();
+            let id: u256 = self.report_count.read() + 1;
+            let report = Report {
+                id,
+                contributor_address: caller,
+                project_id,
+                report_data: link_to_work.clone(),
+                created_at: timestamp,
+                updated_at: timestamp,
+            };
+            self.reports.write(id, report);
+            self.report_count.write(id);
 
-            // Check if caller is a validator or has an approved report
-            let is_validator = self.accesscontrol.has_role(VALIDATOR_ROLE, caller);
-            let has_approved_report = self.has_approved_report(caller);
-            assert(is_validator || has_approved_report, 'Unauthorized: Not validator');
-
-            // Validate amount
-            assert(amount > 0, 'Invalid withdrawal amount');
-            let available_balance = self.user_bounty_balances.read(caller);
-            assert(available_balance >= amount, 'Insufficient bounty balance');
-
-            // Prevent reentrancy by updating balance first
-            let new_balance = available_balance - amount;
-            self.user_bounty_balances.write(caller, new_balance);
-
-            // Process payment
-            let success = self.process_payment(get_contract_address(), amount, recipient);
-            assert(success, 'Transfer failed');
-
-            // Emit event
-            let timestamp = get_block_timestamp();
-            self
-                .emit(
-                    Event::BountyWithdrawn(
-                        BountyWithdrawn {
-                            user: caller,
-                            amount: amount,
-                            recipient: recipient,
-                            timestamp: timestamp,
-                        },
-                    ),
-                );
-
-            (true, new_balance)
+            id
         }
-        fn add_user_bounty_balance(ref self: ContractState, user: ContractAddress, amount: u256) {
-            self.ownable.assert_only_owner();
-            assert(amount > 0, 'Invalid amount');
-            let current_balance = self.user_bounty_balances.read(user);
-            self.user_bounty_balances.write(user, current_balance + amount);
+
+        fn get_report(self: @ContractState, report_id: u256) -> Report {
+            self.accesscontrol.assert_only_role(REPORT_READER);
+            let report = self.reports.read(report_id);
+            assert(report.id > 0, 'Report not found');
+            report
+        }
+
+        fn delete_report(ref self: ContractState, report_id: u256, project_id: u256) -> bool {
+            let project: Project = self.projects.read(project_id);
+            assert(project.id > 0, PROJECT_NOT_FOUND);
+            let caller = get_caller_address();
+
+            let report = self.reports.read(report_id);
+            assert(report.id > 0, 'Report not found');
+
+            let mut report = self.reports.read(report_id);
+            assert(report.contributor_address == caller, 'Only report owner can update');
+            report.project_id = 0;
+            report.report_data = " ";
+            report.updated_at = get_block_timestamp();
+
+            self.reports.write(report_id, report);
+
+            true
+        }
+        fn update_report(
+            ref self: ContractState, report_id: u256, project_id: u256, link_to_work: ByteArray,
+        ) -> bool {
+            let project: Project = self.projects.read(project_id);
+            assert(project.id > 0, PROJECT_NOT_FOUND);
+            let caller = get_caller_address();
+
+            let mut report = self.reports.read(report_id);
+            assert(report.contributor_address == caller, 'Only report owner can update');
+            report.report_data = link_to_work.clone();
+            report.updated_at = get_block_timestamp();
+
+            self.reports.write(report_id, report);
+
+            true
         }
     }
     #[generate_trait]
@@ -649,12 +648,10 @@ mod Fortichain {
         fn get_completed_projects_as_array(self: @ContractState) -> Array<u256> {
             let mut projects = ArrayTrait::new();
             let project_count = self.project_count.read();
-            let mut i: u256 = 1;
-            while i <= project_count {
+            for i in 1..=project_count {
                 if self.completed_projects.read(i) {
                     projects.append(i);
                 }
-                i += 1;
             }
             projects
         }
@@ -662,12 +659,10 @@ mod Fortichain {
         fn get_in_progress_projects_as_array(self: @ContractState) -> Array<u256> {
             let mut projects = ArrayTrait::new();
             let project_count = self.project_count.read();
-            let mut i: u256 = 1;
-            while i <= project_count {
+            for i in 1..=project_count {
                 if self.in_progress_projects.read(i) {
                     projects.append(i);
                 }
-                i += 1;
             }
             projects
         }
@@ -719,27 +714,12 @@ mod Fortichain {
         ) {
             self.ownable.assert_only_owner();
             self.accesscontrol.assert_only_role(VALIDATOR_ROLE);
-            assert!(role == VALIDATOR_ROLE, "role not enable");
+            assert!((role == VALIDATOR_ROLE || role == REPORT_READER), "role not enable");
             if is_enable {
                 self.accesscontrol._grant_role(role, recipient);
             } else {
                 self.accesscontrol._revoke_role(role, recipient);
             }
-        }
-
-        fn has_approved_report(self: @ContractState, user: ContractAddress) -> bool {
-            let project_count = self.project_count.read();
-            let mut i: u256 = 1;
-            let mut result: bool = false;
-            while i <= project_count {
-                let (_link, approved) = self.contributor_reports.read((user, i));
-                if approved {
-                    result = true;
-                    break;
-                }
-                i += 1;
-            }
-            result
         }
     }
 }

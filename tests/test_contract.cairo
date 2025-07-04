@@ -1,5 +1,6 @@
 use core::felt252;
 use core::traits::Into;
+use fortichain_contracts::base::types::Project;
 use fortichain_contracts::interfaces::IFortichain::{
     IFortichainDispatcher, IFortichainDispatcherTrait,
 };
@@ -8,7 +9,10 @@ use snforge_std::{
     ContractClassTrait, DeclareResultTrait, declare, start_cheat_block_timestamp,
     start_cheat_caller_address, stop_cheat_caller_address,
 };
-use starknet::{ContractAddress, contract_address_const, get_block_timestamp};
+use starknet::{
+    ClassHash, ContractAddress, contract_address_const, get_block_timestamp, get_caller_address,
+    get_contract_address,
+};
 
 // use starknet::testing::warp;
 
@@ -43,12 +47,12 @@ fn OWNER() -> ContractAddress {
 fn VALIDATOR_ADDRESS() -> ContractAddress {
     'VALIDATOR_ADDRESS'.try_into().unwrap()
 }
-
-fn RESEARCHER_ADDRESS() -> ContractAddress {
-    'RESEARCHER'.try_into().unwrap()
+fn REPORT_ADDRESS() -> ContractAddress {
+    'REPORT_READER'.try_into().unwrap()
 }
 
 const VALIDATOR_ROLE: felt252 = selector!("VALIDATOR_ROLE");
+const REPORT_READER: felt252 = selector!("REPORT_READER");
 const INVALID_ROLE: felt252 = selector!("INVALID_ROLE");
 
 #[test]
@@ -1138,105 +1142,131 @@ fn test_successful_pay_of_an_approved_validator() {
 }
 
 #[test]
-#[available_gas(2000000)]
-#[should_panic(expected: ('Unauthorized: Not validator',))]
-fn test_withdraw_bounty_unauthorized() {
+fn test_successful_create_report() {
     let contract = contract();
-    let unauthorized = contract_address_const::<3>();
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 0x0.try_into().unwrap();
+    let creator_address: ContractAddress = 0x1.try_into().unwrap();
+    let submitter_address: ContractAddress = 0x4.try_into().unwrap();
+    let erc20_address = contract.get_erc20_address();
+    let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
+    start_cheat_caller_address(erc20_address, creator_address);
+    // Make sure approve_user sets the allowance mapping for (owner, contract_address) to 10000.
+    token_dispatcher.mint(creator_address, 500);
+    token_dispatcher.approve_user(contract_address, 500);
 
-    // Try to withdraw without role or approved report
-    start_cheat_caller_address(contract.contract_address, unauthorized);
-    contract.withdraw_bounty(100, unauthorized);
+    stop_cheat_caller_address(erc20_address);
+    start_cheat_caller_address(contract_address, creator_address);
+    let id = contract
+        .register_project(
+            'Test Name',
+            "Test Description",
+            "DEFI, NFT, Gaming",
+            smart_contract_address,
+            "test@email.com",
+            "https://test.com/supporting-document.pdf",
+            "https://test.com/logo.png",
+            'Github',
+            "https://github.com/test/test",
+            true,
+        );
+    start_cheat_caller_address(contract_address, submitter_address);
+    let report_id = contract.new_report(id, "report.com");
+    start_cheat_caller_address(contract.contract_address, OWNER());
+    contract.set_role(REPORT_ADDRESS(), REPORT_READER, true);
     stop_cheat_caller_address(contract.contract_address);
+
+    start_cheat_caller_address(contract.contract_address, REPORT_ADDRESS());
+    let report = contract.get_report(report_id);
+    assert(report.id == report_id, 'wrong report id');
+    assert(report.project_id == id, 'wrong project id');
+    assert(report.contributor_address == submitter_address, 'wrong submitter');
+    assert(report.report_data == "report.com", 'wrong report url');
 }
 
 #[test]
-#[available_gas(2000000)]
-#[should_panic(expected: ('Insufficient bounty balance',))]
-fn test_withdraw_bounty_insufficient_balance() {
+fn test_successful_update_report() {
     let contract = contract();
-    let validator = VALIDATOR_ADDRESS();
-    let owner = OWNER();
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 0x0.try_into().unwrap();
+    let creator_address: ContractAddress = 0x1.try_into().unwrap();
+    let submitter_address: ContractAddress = 0x4.try_into().unwrap();
+    let erc20_address = contract.get_erc20_address();
+    let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
+    start_cheat_caller_address(erc20_address, creator_address);
+    // Make sure approve_user sets the allowance mapping for (owner, contract_address) to 10000.
+    token_dispatcher.mint(creator_address, 500);
+    token_dispatcher.approve_user(contract_address, 500);
 
-    // Set up validator role
-    start_cheat_caller_address(contract.contract_address, owner);
-    contract.set_role(validator, VALIDATOR_ROLE, true);
-
-    // Try to withdraw with zero balance
-    start_cheat_caller_address(contract.contract_address, validator);
-    contract.withdraw_bounty(100, validator);
+    stop_cheat_caller_address(erc20_address);
+    start_cheat_caller_address(contract_address, creator_address);
+    let id = contract
+        .register_project(
+            'Test Name',
+            "Test Description",
+            "DEFI, NFT, Gaming",
+            smart_contract_address,
+            "test@email.com",
+            "https://test.com/supporting-document.pdf",
+            "https://test.com/logo.png",
+            'Github',
+            "https://github.com/test/test",
+            true,
+        );
+    start_cheat_caller_address(contract_address, submitter_address);
+    let report_id = contract.new_report(id, "report.com");
+    contract.update_report(report_id, id, "report.com/updated");
+    start_cheat_caller_address(contract.contract_address, OWNER());
+    contract.set_role(REPORT_ADDRESS(), REPORT_READER, true);
     stop_cheat_caller_address(contract.contract_address);
+
+    start_cheat_caller_address(contract.contract_address, REPORT_ADDRESS());
+    let report = contract.get_report(report_id);
+    assert(report.id == report_id, 'wrong report id');
+    assert(report.project_id == id, 'wrong project id');
+    assert(report.contributor_address == submitter_address, 'wrong submitter');
+    assert(report.report_data == "report.com/updated", 'wrong report url');
 }
 
 #[test]
-#[available_gas(2000000)]
-#[should_panic(expected: ('Invalid recipient address',))]
-fn test_withdraw_bounty_invalid_recipient() {
+fn test_successful_delete_report() {
     let contract = contract();
-    let erc20 = deploy_erc20();
-    let validator = VALIDATOR_ADDRESS();
-    let owner = OWNER();
-    let other_address = contract_address_const::<3>();
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 0x0.try_into().unwrap();
+    let creator_address: ContractAddress = 0x1.try_into().unwrap();
+    let submitter_address: ContractAddress = 0x4.try_into().unwrap();
+    let erc20_address = contract.get_erc20_address();
+    let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
+    start_cheat_caller_address(erc20_address, creator_address);
+    // Make sure approve_user sets the allowance mapping for (owner, contract_address) to 10000.
+    token_dispatcher.mint(creator_address, 500);
+    token_dispatcher.approve_user(contract_address, 500);
 
-    // Set up validator role and balance
-    start_cheat_caller_address(contract.contract_address, owner);
-    contract.set_role(validator, VALIDATOR_ROLE, true);
-    start_cheat_caller_address(erc20.contract_address, owner);
-    erc20.mint(contract.contract_address, 1000);
-    start_cheat_caller_address(contract.contract_address, owner);
-    contract.add_user_bounty_balance(validator, 500);
+    stop_cheat_caller_address(erc20_address);
+    start_cheat_caller_address(contract_address, creator_address);
+    let id = contract
+        .register_project(
+            'Test Name',
+            "Test Description",
+            "DEFI, NFT, Gaming",
+            smart_contract_address,
+            "test@email.com",
+            "https://test.com/supporting-document.pdf",
+            "https://test.com/logo.png",
+            'Github',
+            "https://github.com/test/test",
+            true,
+        );
+    start_cheat_caller_address(contract_address, submitter_address);
+    let report_id = contract.new_report(id, "report.com");
+    contract.delete_report(report_id, id);
 
-    // Try to withdraw to a different address
-    start_cheat_caller_address(contract.contract_address, validator);
-    contract.withdraw_bounty(200, other_address);
+    start_cheat_caller_address(contract.contract_address, OWNER());
+    contract.set_role(REPORT_ADDRESS(), REPORT_READER, true);
     stop_cheat_caller_address(contract.contract_address);
-    stop_cheat_caller_address(erc20.contract_address);
-}
 
-#[test]
-#[available_gas(2000000)]
-#[should_panic(expected: ('Insufficient bounty balance',))]
-fn test_withdraw_bounty_zero_balance_validator() {
-    let contract = contract();
-    let validator = VALIDATOR_ADDRESS();
-    let owner = OWNER();
+    start_cheat_caller_address(contract.contract_address, REPORT_ADDRESS());
+    let report = contract.get_report(report_id);
 
-    // Set up validator role
-    start_cheat_caller_address(contract.contract_address, owner);
-    contract.set_role(validator, VALIDATOR_ROLE, true);
-
-    // Attempt withdrawal with zero balance
-    start_cheat_caller_address(contract.contract_address, validator);
-    contract.withdraw_bounty(100, validator);
-    stop_cheat_caller_address(contract.contract_address);
-}
-
-#[test]
-#[available_gas(2000000)]
-#[should_panic(expected: ('Insufficient bounty balance',))]
-fn test_withdraw_bounty_large_amount_insufficient_validator() {
-    let contract = contract();
-    let erc20 = deploy_erc20();
-    let owner = OWNER();
-    let validator = VALIDATOR_ADDRESS();
-    let large_amount =
-        57896044618658097711785492504343953926634992332820282019728792003956564819968; // u256::MAX / 2
-
-    // Set up validator role
-    start_cheat_caller_address(contract.contract_address, owner);
-    contract.set_role(validator, VALIDATOR_ROLE, true);
-
-    // Mint smaller amount to contract
-    start_cheat_caller_address(erc20.contract_address, owner);
-    erc20.mint(contract.contract_address, 1000);
-
-    // Add small bounty balance
-    start_cheat_caller_address(contract.contract_address, owner);
-    contract.add_user_bounty_balance(validator, 1000);
-
-    // Attempt to withdraw large amount
-    start_cheat_caller_address(contract.contract_address, validator);
-    contract.withdraw_bounty(large_amount, validator);
-    stop_cheat_caller_address(contract.contract_address);
-    stop_cheat_caller_address(erc20.contract_address);
+    assert(report.report_data == " ", 'wrong report url');
 }
