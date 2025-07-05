@@ -53,7 +53,6 @@ pub mod MockUsdc {
         #[flat]
         OwnableEvent: OwnableComponent::Event,
     }
-
     #[constructor]
     fn constructor(ref self: ContractState, owner: ContractAddress) {
         self.erc20.initializer(format!("USDC"), format!("USDC"));

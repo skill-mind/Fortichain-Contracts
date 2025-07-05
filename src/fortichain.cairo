@@ -1,6 +1,6 @@
 use fortichain_contracts::interfaces::IMockUsdc::{IMockUsdcDispatcher, IMockUsdcDispatcherTrait};
 #[starknet::contract]
-mod Fortichain {
+pub mod Fortichain {
     use core::array::{Array, ArrayTrait};
     use core::traits::Into;
     use fortichain_contracts::interfaces::IFortichain::IFortichain;

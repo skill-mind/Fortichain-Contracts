@@ -22,6 +22,9 @@ test = "snforge test"
 [tool.scarb]
 allow-prebuilt-plugins = ["snforge_std"]
 
+# Contract address: 
+# 0x042c972719cde698a9e1497b022dbffaa0a6b18c0e853c2461b182ea8d884fe3
+
 # Visit https://foundry-rs.github.io/starknet-foundry/appendix/scarb-toml.html for more information
 
 # [tool.snforge]                                             # Define `snforge` tool section
