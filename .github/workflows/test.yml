@@ -27,8 +27,8 @@ jobs:
           asdf global scarb 2.11.3
 
           asdf plugin add starknet-foundry
-          asdf install starknet-foundry  0.39.0
-          asdf global starknet-foundry  0.39.0
+          asdf install starknet-foundry  0.44.0
+          asdf global starknet-foundry  0.44.0
 
       - name: Build contracts
         run: |

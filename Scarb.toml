@@ -10,7 +10,7 @@ starknet = ">=2.9.4"
 openzeppelin = "1.0.0"
 
 [dev-dependencies]
-snforge_std = "0.39.0"
+snforge_std = "0.44.0"
 assert_macros = "^2.9.4"
 
 [[target.starknet-contract]]
@@ -21,6 +21,9 @@ test = "snforge test"
 
 [tool.scarb]
 allow-prebuilt-plugins = ["snforge_std"]
+
+# Contract address: 
+# 0x042c972719cde698a9e1497b022dbffaa0a6b18c0e853c2461b182ea8d884fe3
 
 # Visit https://foundry-rs.github.io/starknet-foundry/appendix/scarb-toml.html for more information
 
