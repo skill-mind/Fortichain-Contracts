@@ -7,15 +7,8 @@ pub trait IFortichain<TContractState> {
     fn register_project(
         ref self: TContractState,
         project_info: ByteArray,
-        // name: felt252,
-        // description: ByteArray,
-        // category: ByteArray,
         smart_contract_address: ContractAddress,
         contact: ByteArray,
-        // supporting_document_url: ByteArray,
-        // logo_url: ByteArray,
-        // repository_provider: felt252,
-        // repository_url: ByteArray,
         signature_request: bool,
     ) -> u256;
 

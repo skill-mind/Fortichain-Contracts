@@ -2,22 +2,16 @@ use fortichain_contracts::interfaces::IMockUsdc::{IMockUsdcDispatcher, IMockUsdc
 #[starknet::contract]
 mod Fortichain {
     use core::array::{Array, ArrayTrait};
-    use core::num::traits::Zero;
-    use core::option::OptionTrait;
     use core::traits::Into;
-    use fortichain_contracts::MockUsdc::MockUsdc;
     use fortichain_contracts::interfaces::IFortichain::IFortichain;
     use openzeppelin::access::accesscontrol::AccessControlComponent;
     use openzeppelin::access::ownable::OwnableComponent;
     use openzeppelin::introspection::src5::SRC5Component;
     use starknet::storage::{
-        Map, Mutable, MutableVecTrait, StorageBase, StorageMapReadAccess, StorageMapWriteAccess,
-        StoragePathEntry, StoragePointerReadAccess, StoragePointerWriteAccess, Vec, VecTrait,
+        Map, MutableVecTrait, StorageMapReadAccess, StorageMapWriteAccess, StoragePathEntry,
+        StoragePointerReadAccess, StoragePointerWriteAccess, Vec,
     };
-    use starknet::{
-        ClassHash, ContractAddress, contract_address_const, get_block_timestamp, get_caller_address,
-        get_contract_address,
-    };
+    use starknet::{ContractAddress, get_block_timestamp, get_caller_address, get_contract_address};
     use crate::base::errors::Errors::{ONLY_CREATOR_CAN_CLOSE, PROJECT_NOT_FOUND};
     use crate::base::types::{Escrow, Project, Report};
     use super::IMockUsdcDispatcherTrait;
@@ -185,6 +179,9 @@ mod Fortichain {
             let mut project = self.projects.read(id);
             let timestamp: u64 = get_block_timestamp();
 
+            if project.info_uri != info_uri {
+                project.info_uri = info_uri;
+            }
             if project.smart_contract_address != smart_contract_address {
                 project.smart_contract_address = smart_contract_address;
             }
@@ -526,7 +523,7 @@ mod Fortichain {
                 let address = report_vec.at(i).read();
                 approved_contributors.append(address);
                 i += 1;
-            };
+            }
             approved_contributors
         }
 
@@ -672,22 +669,22 @@ mod Fortichain {
         fn get_completed_projects_as_array(self: @ContractState) -> Array<u256> {
             let mut projects = ArrayTrait::new();
             let project_count = self.project_count.read();
-            for i in 1..project_count {
+            for i in 1..=project_count {
                 if self.completed_projects.read(i) {
                     projects.append(i);
                 }
-            };
+            }
             projects
         }
 
         fn get_in_progress_projects_as_array(self: @ContractState) -> Array<u256> {
             let mut projects = ArrayTrait::new();
             let project_count = self.project_count.read();
-            for i in 1..project_count {
+            for i in 1..=project_count {
                 if self.in_progress_projects.read(i) {
                     projects.append(i);
                 }
-            };
+            }
             projects
         }
 
@@ -705,7 +702,7 @@ mod Fortichain {
                 let project_id = *project_ids[i];
                 let project = self.projects.read(project_id);
                 projects.append(project);
-            };
+            }
             projects
         }
 
@@ -757,7 +754,7 @@ mod Fortichain {
                     break;
                 }
                 i += 1;
-            };
+            }
             result
         }
     }

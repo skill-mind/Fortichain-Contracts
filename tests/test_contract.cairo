@@ -1,6 +1,5 @@
 use core::felt252;
 use core::traits::Into;
-use fortichain_contracts::base::types::Project;
 use fortichain_contracts::interfaces::IFortichain::{
     IFortichainDispatcher, IFortichainDispatcherTrait,
 };
@@ -9,10 +8,7 @@ use snforge_std::{
     ContractClassTrait, DeclareResultTrait, declare, start_cheat_block_timestamp,
     start_cheat_caller_address, stop_cheat_caller_address,
 };
-use starknet::{
-    ClassHash, ContractAddress, contract_address_const, get_block_timestamp, get_caller_address,
-    get_contract_address,
-};
+use starknet::{ContractAddress, contract_address_const, get_block_timestamp};
 
 // use starknet::testing::warp;
 
@@ -60,18 +56,7 @@ fn test_successful_register_project() {
     let contract = contract();
     let smart_contract_address: ContractAddress = 0x0.try_into().unwrap();
     contract
-        .register_project(
-            'Test Name',
-            "Test Description",
-            "DEFI, NFT, Gaming",
-            smart_contract_address,
-            "test@email.com",
-            "https://test.com/supporting-document.pdf",
-            "https://test.com/logo.png",
-            'Github',
-            "https://github.com/test/test",
-            true,
-        );
+        .register_project("12345", smart_contract_address, "https://github.com/test/test", true);
 }
 
 #[test]
@@ -80,31 +65,14 @@ fn test_successful_edit_project() {
     let smart_contract_address: ContractAddress = 0x0.try_into().unwrap();
 
     let id: u256 = contract
-        .register_project(
-            'Test Name',
-            "Test Description",
-            "DEFI, NFT, Gaming",
-            smart_contract_address,
-            "test@email.com",
-            "https://test.com/supporting-document.pdf",
-            "https://test.com/logo.png",
-            'Github',
-            "https://github.com/test/test",
-            true,
-        );
+        .register_project("12345", smart_contract_address, "https://github.com/test/test", true);
 
     let new_smart_contract_address: ContractAddress = 0x1.try_into().unwrap();
     contract
         .edit_project(
             id,
-            'Updated Name',
-            "Updated Description",
-            "DEFI, NFT, DAO",
+            "12346",
             new_smart_contract_address,
-            "updated@email.com",
-            "https://test.com/new-document.pdf",
-            "https://test.com/new-logo.png",
-            'Gitlab',
             "https://gitlab.com/test/test",
             false,
             false,
@@ -112,7 +80,7 @@ fn test_successful_edit_project() {
         );
 
     let project = contract.view_project(id);
-    assert(project.name == 'Updated Name', 'Name not updated');
+    assert(project.info_uri == "12346", 'URI not updated');
     assert(project.smart_contract_address == new_smart_contract_address, 'Address not updated');
 }
 
@@ -124,19 +92,7 @@ fn test_failed_edit_project() {
     let id: u256 = 1;
     contract
         .edit_project(
-            id,
-            'Updated Name',
-            "Updated Description",
-            "DEFI, NFT, DAO",
-            smart_contract_address,
-            "updated@email.com",
-            "https://test.com/new-document.pdf",
-            "https://test.com/new-logo.png",
-            'Gitlab',
-            "https://gitlab.com/test/test",
-            false,
-            false,
-            true,
+            id, "12346", smart_contract_address, "https://gitlab.com/test/test", false, false, true,
         );
 }
 
@@ -145,20 +101,9 @@ fn test_view_project() {
     let contract = contract();
     let smart_contract_address: ContractAddress = 0x0.try_into().unwrap();
     let id: u256 = contract
-        .register_project(
-            'Test Name',
-            "Test Description",
-            "DEFI, NFT, Gaming",
-            smart_contract_address,
-            "test@email.com",
-            "https://test.com/supporting-document.pdf",
-            "https://test.com/logo.png",
-            'Github',
-            "https://github.com/test/test",
-            true,
-        );
+        .register_project("12345", smart_contract_address, "https://github.com/test/test", true);
     let project = contract.view_project(id);
-    assert(project.name == 'Test Name', 'Project Not Found');
+    assert(project.info_uri == "12345", 'Project Not Found');
 }
 
 #[test]
@@ -166,18 +111,7 @@ fn test_total_projects() {
     let contract = contract();
     let smart_contract_address: ContractAddress = 0x0.try_into().unwrap();
     contract
-        .register_project(
-            'Test Name',
-            "Test Description",
-            "DEFI, NFT, Gaming",
-            smart_contract_address,
-            "test@email.com",
-            "https://test.com/supporting-document.pdf",
-            "https://test.com/logo.png",
-            'Github',
-            "https://github.com/test/test",
-            true,
-        );
+        .register_project("12345", smart_contract_address, "https://github.com/test/test", true);
     let total = contract.total_projects();
     assert(total == 1, 'Failed to fetch total');
 }
@@ -191,18 +125,7 @@ fn test_successful_close_project() {
     let creator_address: ContractAddress = 0x1.try_into().unwrap();
     start_cheat_caller_address(contract_address, creator_address);
     let id: u256 = contract
-        .register_project(
-            'Test Name',
-            "Test Description",
-            "DEFI, NFT, Gaming",
-            smart_contract_address,
-            "test@email.com",
-            "https://test.com/supporting-document.pdf",
-            "https://test.com/logo.png",
-            'Github',
-            "https://github.com/test/test",
-            true,
-        );
+        .register_project("12345", smart_contract_address, "https://github.com/test/test", true);
 
     contract.close_project(id, creator_address);
 
@@ -219,18 +142,7 @@ fn test_failed_close_project() {
     let creator_address: ContractAddress = 0x1.try_into().unwrap();
     start_cheat_caller_address(contract_address, creator_address);
     let id: u256 = contract
-        .register_project(
-            'Test Name',
-            "Test Description",
-            "DEFI, NFT, Gaming",
-            smart_contract_address,
-            "test@email.com",
-            "https://test.com/supporting-document.pdf",
-            "https://test.com/logo.png",
-            'Github',
-            "https://github.com/test/test",
-            true,
-        );
+        .register_project("12345", smart_contract_address, "https://github.com/test/test", true);
     stop_cheat_caller_address(creator_address);
     let creator_address: ContractAddress = 0x2.try_into().unwrap();
     contract.close_project(id, creator_address);
@@ -244,18 +156,7 @@ fn test_successful_get_in_progress_projects() {
     let creator_address: ContractAddress = 0x1.try_into().unwrap();
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            'Test Name',
-            "Test Description",
-            "DEFI, NFT, Gaming",
-            smart_contract_address,
-            "test@email.com",
-            "https://test.com/supporting-document.pdf",
-            "https://test.com/logo.png",
-            'Github',
-            "https://github.com/test/test",
-            true,
-        );
+        .register_project("12345", smart_contract_address, "https://github.com/test/test", true);
     contract.mark_project_in_progress(id);
     stop_cheat_caller_address(creator_address);
     let in_progress = contract.all_in_progress_projects();
@@ -270,18 +171,7 @@ fn test_successful_get_completed_projects() {
     let creator_address: ContractAddress = 0x1.try_into().unwrap();
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            'Test Name',
-            "Test Description",
-            "DEFI, NFT, Gaming",
-            smart_contract_address,
-            "test@email.com",
-            "https://test.com/supporting-document.pdf",
-            "https://test.com/logo.png",
-            'Github',
-            "https://github.com/test/test",
-            true,
-        );
+        .register_project("12345", smart_contract_address, "https://github.com/test/test", true);
     contract.mark_project_completed(id);
     stop_cheat_caller_address(creator_address);
     let completed = contract.all_completed_projects();
@@ -304,18 +194,7 @@ fn test_successful_escrow_creation() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            'Test Name',
-            "Test Description",
-            "DEFI, NFT, Gaming",
-            smart_contract_address,
-            "test@email.com",
-            "https://test.com/supporting-document.pdf",
-            "https://test.com/logo.png",
-            'Github',
-            "https://github.com/test/test",
-            true,
-        );
+        .register_project("12345", smart_contract_address, "https://github.com/test/test", true);
 
     let escrow_id = contract.fund_project(id, 200, 60);
     stop_cheat_caller_address(creator_address);
@@ -326,7 +205,7 @@ fn test_successful_escrow_creation() {
 
     let escrow = contract.view_escrow(escrow_id);
 
-    assert(escrow.project_name == 'Test Name', ' wrong Name');
+    assert(escrow.project_id == id, 'wrong ID');
     assert(escrow.amount == 200, '60');
     assert(contract_bal == 200, 'Contract did not get the funds');
     assert(user_bal == 300, 'user bal error');
@@ -351,18 +230,7 @@ fn test_escrow_creation_with_0_STRK() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            'Test Name',
-            "Test Description",
-            "DEFI, NFT, Gaming",
-            smart_contract_address,
-            "test@email.com",
-            "https://test.com/supporting-document.pdf",
-            "https://test.com/logo.png",
-            'Github',
-            "https://github.com/test/test",
-            true,
-        );
+        .register_project("12345", smart_contract_address, "https://github.com/test/test", true);
 
     let _escrow_id = contract.fund_project(id, 0, 60);
     stop_cheat_caller_address(creator_address);
@@ -385,18 +253,7 @@ fn test_escrow_creation_with_unlocktime_in_the_present() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            'Test Name',
-            "Test Description",
-            "DEFI, NFT, Gaming",
-            smart_contract_address,
-            "test@email.com",
-            "https://test.com/supporting-document.pdf",
-            "https://test.com/logo.png",
-            'Github',
-            "https://github.com/test/test",
-            true,
-        );
+        .register_project("12345", smart_contract_address, "https://github.com/test/test", true);
 
     let _escrow_id = contract.fund_project(id, 60, 0);
     stop_cheat_caller_address(creator_address);
@@ -420,18 +277,7 @@ fn test_escrow_creation_with_low_balance() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            'Test Name',
-            "Test Description",
-            "DEFI, NFT, Gaming",
-            smart_contract_address,
-            "test@email.com",
-            "https://test.com/supporting-document.pdf",
-            "https://test.com/logo.png",
-            'Github',
-            "https://github.com/test/test",
-            true,
-        );
+        .register_project("12345", smart_contract_address, "https://github.com/test/test", true);
 
     let _escrow_id = contract.fund_project(id, 60, 0);
     stop_cheat_caller_address(creator_address);
@@ -455,18 +301,7 @@ fn test_escrow_creation_funding_another_person_project() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address_2);
     let id = contract
-        .register_project(
-            'Test Name',
-            "Test Description",
-            "DEFI, NFT, Gaming",
-            smart_contract_address,
-            "test@email.com",
-            "https://test.com/supporting-document.pdf",
-            "https://test.com/logo.png",
-            'Github',
-            "https://github.com/test/test",
-            true,
-        );
+        .register_project("12345", smart_contract_address, "https://github.com/test/test", true);
 
     let _escrow_id = contract.fund_project(id, 0, 60);
     stop_cheat_caller_address(creator_address);
@@ -488,18 +323,7 @@ fn test_successful_add_escrow_funds() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            'Test Name',
-            "Test Description",
-            "DEFI, NFT, Gaming",
-            smart_contract_address,
-            "test@email.com",
-            "https://test.com/supporting-document.pdf",
-            "https://test.com/logo.png",
-            'Github',
-            "https://github.com/test/test",
-            true,
-        );
+        .register_project("12345", smart_contract_address, "https://github.com/test/test", true);
 
     let escrow_id = contract.fund_project(id, 200, 60);
 
@@ -536,26 +360,15 @@ fn test_add_escrow_funds_with_low_funds() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            'Test Name',
-            "Test Description",
-            "DEFI, NFT, Gaming",
-            smart_contract_address,
-            "test@email.com",
-            "https://test.com/supporting-document.pdf",
-            "https://test.com/logo.png",
-            'Github',
-            "https://github.com/test/test",
-            true,
-        );
+        .register_project("12345", smart_contract_address, "https://github.com/test/test", true);
 
     let escrow_id = contract.fund_project(id, 200, 60);
 
     contract.add_escrow_funding(escrow_id, 301);
     stop_cheat_caller_address(creator_address);
 
-    let user_bal = token_dispatcher.get_balance(creator_address);
-    let contract_bal = token_dispatcher.get_balance(contract_address);
+    let _user_bal = token_dispatcher.get_balance(creator_address);
+    let _contract_bal = token_dispatcher.get_balance(contract_address);
     assert(escrow_id == 1, 'wrong id');
 
     let _escrow = contract.view_escrow(escrow_id);
@@ -581,18 +394,7 @@ fn test_add_escrow_funds_to_another_person_escrow() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            'Test Name',
-            "Test Description",
-            "DEFI, NFT, Gaming",
-            smart_contract_address,
-            "test@email.com",
-            "https://test.com/supporting-document.pdf",
-            "https://test.com/logo.png",
-            'Github',
-            "https://github.com/test/test",
-            true,
-        );
+        .register_project("12345", smart_contract_address, "https://github.com/test/test", true);
 
     let escrow_id = contract.fund_project(id, 200, 60);
 
@@ -619,18 +421,7 @@ fn test_successful_pull_escrow_funds() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            'Test Name',
-            "Test Description",
-            "DEFI, NFT, Gaming",
-            smart_contract_address,
-            "test@email.com",
-            "https://test.com/supporting-document.pdf",
-            "https://test.com/logo.png",
-            'Github',
-            "https://github.com/test/test",
-            true,
-        );
+        .register_project("12345", smart_contract_address, "https://github.com/test/test", true);
 
     let escrow_id = contract.fund_project(id, 200, 60);
 
@@ -672,18 +463,7 @@ fn test_adding_funds_after_pulling_escrow_funds_before_time() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            'Test Name',
-            "Test Description",
-            "DEFI, NFT, Gaming",
-            smart_contract_address,
-            "test@email.com",
-            "https://test.com/supporting-document.pdf",
-            "https://test.com/logo.png",
-            'Github',
-            "https://github.com/test/test",
-            true,
-        );
+        .register_project("12345", smart_contract_address, "https://github.com/test/test", true);
 
     let escrow_id = contract.fund_project(id, 200, 60);
 
@@ -710,18 +490,7 @@ fn test_adding_funds_after_pulling_escrow_funds() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            'Test Name',
-            "Test Description",
-            "DEFI, NFT, Gaming",
-            smart_contract_address,
-            "test@email.com",
-            "https://test.com/supporting-document.pdf",
-            "https://test.com/logo.png",
-            'Github',
-            "https://github.com/test/test",
-            true,
-        );
+        .register_project("12345", smart_contract_address, "https://github.com/test/test", true);
 
     let escrow_id = contract.fund_project(id, 200, 60);
 
@@ -756,18 +525,7 @@ fn test_pull_someone_elses_escrow_funds() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            'Test Name',
-            "Test Description",
-            "DEFI, NFT, Gaming",
-            smart_contract_address,
-            "test@email.com",
-            "https://test.com/supporting-document.pdf",
-            "https://test.com/logo.png",
-            'Github',
-            "https://github.com/test/test",
-            true,
-        );
+        .register_project("12345", smart_contract_address, "https://github.com/test/test", true);
 
     let escrow_id = contract.fund_project(id, 200, 60);
     stop_cheat_caller_address(creator_address);
@@ -790,18 +548,7 @@ fn test_set_role() {
     let contract = contract();
     let smart_contract_address: ContractAddress = 0x0.try_into().unwrap();
     contract
-        .register_project(
-            'Test Name',
-            "Test Description",
-            "DEFI, NFT, Gaming",
-            smart_contract_address,
-            "test@email.com",
-            "https://test.com/supporting-document.pdf",
-            "https://test.com/logo.png",
-            'Github',
-            "https://github.com/test/test",
-            true,
-        );
+        .register_project("12345", smart_contract_address, "https://github.com/test/test", true);
 
     start_cheat_caller_address(contract.contract_address, OWNER());
     contract.set_role(VALIDATOR_ADDRESS(), VALIDATOR_ROLE, true);
@@ -817,18 +564,7 @@ fn test_set_role_should_panic_when_invalid_role_is_passed() {
     let contract = contract();
     let smart_contract_address: ContractAddress = 0x0.try_into().unwrap();
     contract
-        .register_project(
-            'Test Name',
-            "Test Description",
-            "DEFI, NFT, Gaming",
-            smart_contract_address,
-            "test@email.com",
-            "https://test.com/supporting-document.pdf",
-            "https://test.com/logo.png",
-            'Github',
-            "https://github.com/test/test",
-            true,
-        );
+        .register_project("12345", smart_contract_address, "https://github.com/test/test", true);
 
     start_cheat_caller_address(contract.contract_address, OWNER());
     contract.set_role(VALIDATOR_ADDRESS(), INVALID_ROLE, true);
@@ -868,18 +604,7 @@ fn test_successful_report_submit() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            'Test Name',
-            "Test Description",
-            "DEFI, NFT, Gaming",
-            smart_contract_address,
-            "test@email.com",
-            "https://test.com/supporting-document.pdf",
-            "https://test.com/logo.png",
-            'Github',
-            "https://github.com/test/test",
-            true,
-        );
+        .register_project("12345", smart_contract_address, "https://github.com/test/test", true);
 
     start_cheat_caller_address(contract_address, submitter_address);
     let submit_report = contract.submit_report(id, 0x1234);
@@ -899,7 +624,7 @@ fn test_report_approve_should_panic_if_project_not_found() {
     // basic setup
     let contract = contract();
     let contract_address = contract.contract_address;
-    let smart_contract_address: ContractAddress = 0x0.try_into().unwrap();
+    let _smart_contract_address: ContractAddress = 0x0.try_into().unwrap();
     let creator_address: ContractAddress = 0x1.try_into().unwrap();
     let submitter_address: ContractAddress = 0x4.try_into().unwrap();
     let erc20_address = contract.get_erc20_address();
@@ -942,18 +667,7 @@ fn test_approve_a_report_successfully() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            'Test Name',
-            "Test Description",
-            "DEFI, NFT, Gaming",
-            smart_contract_address,
-            "test@email.com",
-            "https://test.com/supporting-document.pdf",
-            "https://test.com/logo.png",
-            'Github',
-            "https://github.com/test/test",
-            true,
-        );
+        .register_project("12345", smart_contract_address, "https://github.com/test/test", true);
 
     start_cheat_caller_address(contract.contract_address, OWNER());
     contract.set_role(VALIDATOR_ADDRESS(), VALIDATOR_ROLE, true);
@@ -1000,18 +714,7 @@ fn test_approve_a_report_should_panic_if_non_validator_tries_to_approve() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            'Test Name',
-            "Test Description",
-            "DEFI, NFT, Gaming",
-            smart_contract_address,
-            "test@email.com",
-            "https://test.com/supporting-document.pdf",
-            "https://test.com/logo.png",
-            'Github',
-            "https://github.com/test/test",
-            true,
-        );
+        .register_project("12345", smart_contract_address, "https://github.com/test/test", true);
 
     start_cheat_caller_address(contract.contract_address, OWNER());
     contract.set_role(VALIDATOR_ADDRESS(), VALIDATOR_ROLE, true);
@@ -1044,7 +747,7 @@ fn test_approve_a_report_should_panic_if_project_not_found() {
     // basic setup
     let contract = contract();
     let contract_address = contract.contract_address;
-    let smart_contract_address: ContractAddress = 0x0.try_into().unwrap();
+    let _smart_contract_address: ContractAddress = 0x0.try_into().unwrap();
     let creator_address: ContractAddress = 0x1.try_into().unwrap();
     let submitter_address: ContractAddress = 0x4.try_into().unwrap();
     let random_address: ContractAddress = 0x664.try_into().unwrap();
@@ -1100,20 +803,9 @@ fn test_successful_pay_of_an_approved_validator() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            'Test Name',
-            "Test Description",
-            "DEFI, NFT, Gaming",
-            smart_contract_address,
-            "test@email.com",
-            "https://test.com/supporting-document.pdf",
-            "https://test.com/logo.png",
-            'Github',
-            "https://github.com/test/test",
-            true,
-        );
+        .register_project("12345", smart_contract_address, "https://github.com/test/test", true);
 
-    let escrow_id = contract.fund_project(id, 200, 60);
+    let _escrow_id = contract.fund_project(id, 200, 60);
 
     start_cheat_caller_address(contract.contract_address, OWNER());
     contract.set_role(VALIDATOR_ADDRESS(), VALIDATOR_ROLE, true);
@@ -1158,18 +850,7 @@ fn test_successful_create_report() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            'Test Name',
-            "Test Description",
-            "DEFI, NFT, Gaming",
-            smart_contract_address,
-            "test@email.com",
-            "https://test.com/supporting-document.pdf",
-            "https://test.com/logo.png",
-            'Github',
-            "https://github.com/test/test",
-            true,
-        );
+        .register_project("12345", smart_contract_address, "https://github.com/test/test", true);
     start_cheat_caller_address(contract_address, submitter_address);
     let report_id = contract.new_report(id, "report.com");
     start_cheat_caller_address(contract.contract_address, OWNER());
@@ -1201,18 +882,7 @@ fn test_successful_update_report() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            'Test Name',
-            "Test Description",
-            "DEFI, NFT, Gaming",
-            smart_contract_address,
-            "test@email.com",
-            "https://test.com/supporting-document.pdf",
-            "https://test.com/logo.png",
-            'Github',
-            "https://github.com/test/test",
-            true,
-        );
+        .register_project("12345", smart_contract_address, "https://github.com/test/test", true);
     start_cheat_caller_address(contract_address, submitter_address);
     let report_id = contract.new_report(id, "report.com");
     contract.update_report(report_id, id, "report.com/updated");
@@ -1245,18 +915,7 @@ fn test_successful_delete_report() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            'Test Name',
-            "Test Description",
-            "DEFI, NFT, Gaming",
-            smart_contract_address,
-            "test@email.com",
-            "https://test.com/supporting-document.pdf",
-            "https://test.com/logo.png",
-            'Github',
-            "https://github.com/test/test",
-            true,
-        );
+        .register_project("12345", smart_contract_address, "https://github.com/test/test", true);
     start_cheat_caller_address(contract_address, submitter_address);
     let report_id = contract.new_report(id, "report.com");
     contract.delete_report(report_id, id);
