@@ -2,22 +2,16 @@ use fortichain_contracts::interfaces::IMockUsdc::{IMockUsdcDispatcher, IMockUsdc
 #[starknet::contract]
 mod Fortichain {
     use core::array::{Array, ArrayTrait};
-    use core::num::traits::Zero;
-    use core::option::OptionTrait;
     use core::traits::Into;
-    use fortichain_contracts::MockUsdc::MockUsdc;
     use fortichain_contracts::interfaces::IFortichain::IFortichain;
     use openzeppelin::access::accesscontrol::AccessControlComponent;
     use openzeppelin::access::ownable::OwnableComponent;
     use openzeppelin::introspection::src5::SRC5Component;
     use starknet::storage::{
-        Map, Mutable, MutableVecTrait, StorageBase, StorageMapReadAccess, StorageMapWriteAccess,
-        StoragePathEntry, StoragePointerReadAccess, StoragePointerWriteAccess, Vec, VecTrait,
+        Map, MutableVecTrait, StorageMapReadAccess, StorageMapWriteAccess, StoragePathEntry,
+        StoragePointerReadAccess, StoragePointerWriteAccess, Vec,
     };
-    use starknet::{
-        ClassHash, ContractAddress, contract_address_const, get_block_timestamp, get_caller_address,
-        get_contract_address,
-    };
+    use starknet::{ContractAddress, get_block_timestamp, get_caller_address, get_contract_address};
     use crate::base::errors::Errors::{ONLY_CREATOR_CAN_CLOSE, PROJECT_NOT_FOUND};
     use crate::base::types::{Escrow, Project, Report};
     use super::IMockUsdcDispatcherTrait;
@@ -140,15 +134,9 @@ mod Fortichain {
     impl FortichainImpl of IFortichain<ContractState> {
         fn register_project(
             ref self: ContractState,
-            name: felt252,
-            description: ByteArray,
-            category: ByteArray,
+            project_info: ByteArray,
             smart_contract_address: ContractAddress,
             contact: ByteArray,
-            supporting_document_url: ByteArray,
-            logo_url: ByteArray,
-            repository_provider: felt252,
-            repository_url: ByteArray,
             signature_request: bool,
         ) -> u256 {
             let timestamp: u64 = get_block_timestamp();
@@ -156,16 +144,10 @@ mod Fortichain {
             let caller = get_caller_address();
             let project = Project {
                 id,
+                info_uri: project_info,
                 creator_address: caller,
-                name,
-                description,
-                category,
                 smart_contract_address,
                 contact,
-                supporting_document_url,
-                logo_url,
-                repository_provider,
-                repository_url,
                 signature_request,
                 is_active: true,
                 is_completed: false,
@@ -183,15 +165,9 @@ mod Fortichain {
         fn edit_project(
             ref self: ContractState,
             id: u256,
-            name: felt252,
-            description: ByteArray,
-            category: ByteArray,
+            info_uri: ByteArray,
             smart_contract_address: ContractAddress,
             contact: ByteArray,
-            supporting_document_url: ByteArray,
-            logo_url: ByteArray,
-            repository_provider: felt252,
-            repository_url: ByteArray,
             signature_request: bool,
             is_active: bool,
             is_completed: bool,
@@ -202,32 +178,15 @@ mod Fortichain {
             assert(project.creator_address == caller, ONLY_CREATOR_CAN_CLOSE);
             let mut project = self.projects.read(id);
             let timestamp: u64 = get_block_timestamp();
-            if project.name != name {
-                project.name = name;
-            }
-            if project.description != description {
-                project.description = description;
-            }
-            if project.category != category {
-                project.category = category;
+
+            if project.info_uri != info_uri {
+                project.info_uri = info_uri;
             }
             if project.smart_contract_address != smart_contract_address {
                 project.smart_contract_address = smart_contract_address;
             }
             if project.contact != contact {
                 project.contact = contact;
-            }
-            if project.supporting_document_url != supporting_document_url {
-                project.supporting_document_url = supporting_document_url;
-            }
-            if project.logo_url != logo_url {
-                project.logo_url = logo_url;
-            }
-            if project.repository_provider != repository_provider {
-                project.repository_provider = repository_provider;
-            }
-            if project.repository_url != repository_url {
-                project.repository_url = repository_url;
             }
             if project.signature_request != signature_request {
                 project.signature_request = signature_request;
@@ -345,7 +304,7 @@ mod Fortichain {
 
             let escrow = Escrow {
                 id,
-                project_name: project.name,
+                project_id: project.id,
                 projectOwner: caller,
                 amount: amount,
                 isLocked: true,
