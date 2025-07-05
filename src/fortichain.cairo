@@ -140,15 +140,9 @@ mod Fortichain {
     impl FortichainImpl of IFortichain<ContractState> {
         fn register_project(
             ref self: ContractState,
-            name: felt252,
-            description: ByteArray,
-            category: ByteArray,
+            project_info: ByteArray,
             smart_contract_address: ContractAddress,
             contact: ByteArray,
-            supporting_document_url: ByteArray,
-            logo_url: ByteArray,
-            repository_provider: felt252,
-            repository_url: ByteArray,
             signature_request: bool,
         ) -> u256 {
             let timestamp: u64 = get_block_timestamp();
@@ -156,16 +150,10 @@ mod Fortichain {
             let caller = get_caller_address();
             let project = Project {
                 id,
+                info_uri: project_info,
                 creator_address: caller,
-                name,
-                description,
-                category,
                 smart_contract_address,
                 contact,
-                supporting_document_url,
-                logo_url,
-                repository_provider,
-                repository_url,
                 signature_request,
                 is_active: true,
                 is_completed: false,
@@ -183,15 +171,9 @@ mod Fortichain {
         fn edit_project(
             ref self: ContractState,
             id: u256,
-            name: felt252,
-            description: ByteArray,
-            category: ByteArray,
+            info_uri: ByteArray,
             smart_contract_address: ContractAddress,
             contact: ByteArray,
-            supporting_document_url: ByteArray,
-            logo_url: ByteArray,
-            repository_provider: felt252,
-            repository_url: ByteArray,
             signature_request: bool,
             is_active: bool,
             is_completed: bool,
@@ -202,32 +184,12 @@ mod Fortichain {
             assert(project.creator_address == caller, ONLY_CREATOR_CAN_CLOSE);
             let mut project = self.projects.read(id);
             let timestamp: u64 = get_block_timestamp();
-            if project.name != name {
-                project.name = name;
-            }
-            if project.description != description {
-                project.description = description;
-            }
-            if project.category != category {
-                project.category = category;
-            }
+
             if project.smart_contract_address != smart_contract_address {
                 project.smart_contract_address = smart_contract_address;
             }
             if project.contact != contact {
                 project.contact = contact;
-            }
-            if project.supporting_document_url != supporting_document_url {
-                project.supporting_document_url = supporting_document_url;
-            }
-            if project.logo_url != logo_url {
-                project.logo_url = logo_url;
-            }
-            if project.repository_provider != repository_provider {
-                project.repository_provider = repository_provider;
-            }
-            if project.repository_url != repository_url {
-                project.repository_url = repository_url;
             }
             if project.signature_request != signature_request {
                 project.signature_request = signature_request;
@@ -345,7 +307,7 @@ mod Fortichain {
 
             let escrow = Escrow {
                 id,
-                project_name: project.name,
+                project_id: project.id,
                 projectOwner: caller,
                 amount: amount,
                 isLocked: true,
@@ -564,7 +526,7 @@ mod Fortichain {
                 let address = report_vec.at(i).read();
                 approved_contributors.append(address);
                 i += 1;
-            }
+            };
             approved_contributors
         }
 
@@ -710,22 +672,22 @@ mod Fortichain {
         fn get_completed_projects_as_array(self: @ContractState) -> Array<u256> {
             let mut projects = ArrayTrait::new();
             let project_count = self.project_count.read();
-            for i in 1..=project_count {
+            for i in 1..project_count {
                 if self.completed_projects.read(i) {
                     projects.append(i);
                 }
-            }
+            };
             projects
         }
 
         fn get_in_progress_projects_as_array(self: @ContractState) -> Array<u256> {
             let mut projects = ArrayTrait::new();
             let project_count = self.project_count.read();
-            for i in 1..=project_count {
+            for i in 1..project_count {
                 if self.in_progress_projects.read(i) {
                     projects.append(i);
                 }
-            }
+            };
             projects
         }
 
@@ -743,7 +705,7 @@ mod Fortichain {
                 let project_id = *project_ids[i];
                 let project = self.projects.read(project_id);
                 projects.append(project);
-            }
+            };
             projects
         }
 
@@ -795,7 +757,7 @@ mod Fortichain {
                     break;
                 }
                 i += 1;
-            }
+            };
             result
         }
     }
