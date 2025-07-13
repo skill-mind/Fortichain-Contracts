@@ -12,6 +12,7 @@ pub struct Project {
     pub is_completed: bool,
     pub created_at: u64,
     pub updated_at: u64,
+    pub deadline: u64,
 }
 #[derive(Drop, Copy, Serde, PartialEq, starknet::Store)]
 pub struct Escrow {
@@ -35,4 +36,15 @@ pub struct Report {
     pub report_data: ByteArray,
     pub created_at: u64,
     pub updated_at: u64,
+}
+
+
+#[derive(Drop, Clone, Serde, PartialEq, starknet::Store)]
+pub struct Validator {
+    pub id: u256,
+    pub validator_data_uri: ByteArray,
+    pub validator_address: ContractAddress,
+    pub created_at: u64,
+    pub updated_at: u64,
+    pub status: felt252,
 }

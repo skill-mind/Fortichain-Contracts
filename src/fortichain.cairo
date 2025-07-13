@@ -12,8 +12,10 @@ pub mod Fortichain {
         StoragePointerReadAccess, StoragePointerWriteAccess, Vec,
     };
     use starknet::{ContractAddress, get_block_timestamp, get_caller_address, get_contract_address};
-    use crate::base::errors::Errors::{ONLY_CREATOR_CAN_CLOSE, PROJECT_NOT_FOUND};
-    use crate::base::types::{Escrow, Project, Report};
+    use crate::base::errors::Errors::{
+        CAN_ONLY_CLOSE_AFTER_DEADLINE, ONLY_CREATOR_CAN_CLOSE, PROJECT_NOT_FOUND,
+    };
+    use crate::base::types::{Escrow, Project, Report, Validator};
     use super::IMockUsdcDispatcherTrait;
 
     component!(path: OwnableComponent, storage: ownable, event: OwnableEvent);
@@ -55,6 +57,8 @@ pub mod Fortichain {
         approved_contributor_reports: Map<u256, Vec<ContractAddress>>,
         // project id and a list of the approved contributors
         paid_contributors: Map<(u256, ContractAddress), bool>,
+        validators: Map<ContractAddress, (u256, Validator)>,
+        total_validators: u256,
         report_count: u256,
         reports: Map<u256, Report>,
         #[substorage(v0)]
@@ -138,6 +142,7 @@ pub mod Fortichain {
             smart_contract_address: ContractAddress,
             contact: ByteArray,
             signature_request: bool,
+            deadline: u64,
         ) -> u256 {
             let timestamp: u64 = get_block_timestamp();
             let id: u256 = self.project_count.read() + 1;
@@ -153,6 +158,7 @@ pub mod Fortichain {
                 is_completed: false,
                 created_at: timestamp,
                 updated_at: timestamp,
+                deadline,
             };
 
             self.projects.write(id, project);
@@ -208,6 +214,7 @@ pub mod Fortichain {
             let project: Project = self.projects.read(id);
             assert(project.id > 0, PROJECT_NOT_FOUND);
             assert(project.creator_address == creator_address, ONLY_CREATOR_CAN_CLOSE);
+            assert(project.deadline < get_block_timestamp(), CAN_ONLY_CLOSE_AFTER_DEADLINE);
             let mut project = self.projects.read(id);
             let timestamp: u64 = get_block_timestamp();
             project.is_active = false;
@@ -292,6 +299,11 @@ pub mod Fortichain {
         ) -> u256 {
             assert(amount > 0, 'Invalid fund amount');
             assert(lockTime > 0, 'unlock time not in the future');
+            let token = self.strk_token_address.read();
+            let erc20_dispatcher = super::IMockUsdcDispatcher { contract_address: token };
+            assert(
+                erc20_dispatcher.get_balance(get_caller_address()) > amount, 'Insufficient balance',
+            );
             let caller = get_caller_address();
             let timestamp: u64 = get_block_timestamp();
             let receiver = get_contract_address();
@@ -339,6 +351,8 @@ pub mod Fortichain {
 
             assert((escrow_id > 0) && (escrow_id >= cur_escrow_count), 'invalid escrow id');
             let mut escrow = self.view_escrow(escrow_id);
+            let project = self.projects.read(escrow.project_id);
+            assert(timestamp > project.deadline, 'Invalid time');
 
             assert(escrow.lockTime <= timestamp, 'Unlock time in the future');
             assert(caller == escrow.projectOwner, 'not your escrow');
@@ -378,13 +392,14 @@ pub mod Fortichain {
 
         fn add_escrow_funding(ref self: ContractState, escrow_id: u256, amount: u256) -> bool {
             let cur_escrow_count = self.escrows_count.read();
+            assert((escrow_id > 0) && (escrow_id >= cur_escrow_count), 'invalid escrow id');
+            let mut escrow = self.view_escrow(escrow_id);
+            let project = self.projects.read(escrow.project_id);
+            assert(get_block_timestamp() > project.deadline, 'Invalid time');
 
             let caller = get_caller_address();
             let timestamp: u64 = get_block_timestamp();
             let contract = get_contract_address();
-
-            assert((escrow_id > 0) && (escrow_id >= cur_escrow_count), 'invalid escrow id');
-            let mut escrow = self.view_escrow(escrow_id);
 
             assert(escrow.lockTime >= timestamp, 'Escrow has Matured');
             assert(escrow.is_active, 'escrow not active');
@@ -467,6 +482,7 @@ pub mod Fortichain {
         ) {
             assert(amount > 0, 'Invalid fund amount');
             let caller = get_caller_address();
+            self.accesscontrol.assert_only_role(VALIDATOR_ROLE);
 
             let mut project: Project = self.view_project(project_id);
             assert(project.creator_address == caller, 'Only project owner can pay');
@@ -577,24 +593,6 @@ pub mod Fortichain {
             report
         }
 
-        fn delete_report(ref self: ContractState, report_id: u256, project_id: u256) -> bool {
-            let project: Project = self.projects.read(project_id);
-            assert(project.id > 0, PROJECT_NOT_FOUND);
-            let caller = get_caller_address();
-
-            let report = self.reports.read(report_id);
-            assert(report.id > 0, 'Report not found');
-
-            let mut report = self.reports.read(report_id);
-            assert(report.contributor_address == caller, 'Only report owner can update');
-            report.project_id = 0;
-            report.report_data = " ";
-            report.updated_at = get_block_timestamp();
-
-            self.reports.write(report_id, report);
-
-            true
-        }
         fn update_report(
             ref self: ContractState, report_id: u256, project_id: u256, link_to_work: ByteArray,
         ) -> bool {
@@ -662,6 +660,43 @@ pub mod Fortichain {
             assert(amount > 0, 'Invalid amount');
             let current_balance = self.user_bounty_balances.read(user);
             self.user_bounty_balances.write(user, current_balance + amount);
+        }
+
+        fn register_validator_profile(
+            ref self: ContractState,
+            validator_data_uri: ByteArray,
+            validator_address: ContractAddress,
+        ) {
+            let current_total = self.total_validators.read();
+
+            let validator = Validator {
+                id: current_total + 1,
+                validator_data_uri,
+                validator_address,
+                created_at: get_block_timestamp(),
+                updated_at: get_block_timestamp(),
+                status: 'pending',
+            };
+
+            self.validators.write(validator_address, (current_total + 1, validator));
+            self.total_validators.write(current_total + 1);
+        }
+
+        fn approve_validator_profile(ref self: ContractState, validator_address: ContractAddress) {
+            self.accesscontrol.assert_only_role(ADMIN_ROLE);
+            let (id, mut validator) = self.validators.read(validator_address);
+            validator.status = 'approved';
+
+            self.validators.write(validator_address, (id, validator));
+            self.set_role(validator_address, VALIDATOR_ROLE, true);
+        }
+
+        fn reject_validator_profile(ref self: ContractState, validator_address: ContractAddress) {
+            self.accesscontrol.assert_only_role(ADMIN_ROLE);
+            let (id, mut validator) = self.validators.read(validator_address);
+            validator.status = 'rejected';
+
+            self.validators.write(validator_address, (id, validator));
         }
     }
     #[generate_trait]
