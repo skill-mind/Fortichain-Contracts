@@ -13,7 +13,8 @@ pub mod Fortichain {
     };
     use starknet::{ContractAddress, get_block_timestamp, get_caller_address, get_contract_address};
     use crate::base::errors::Errors::{
-        CAN_ONLY_CLOSE_AFTER_DEADLINE, ONLY_CREATOR_CAN_CLOSE, PROJECT_NOT_FOUND,
+        CAN_ONLY_CLOSE_AFTER_DEADLINE, ONLY_CREATOR_CAN_CLOSE, ONLY_CREATOR_CAN_EDIT,
+        PROJECT_NOT_FOUND,
     };
     use crate::base::types::{Escrow, Project, Report, Validator};
     use super::IMockUsdcDispatcherTrait;
@@ -50,7 +51,7 @@ pub mod Fortichain {
         user_bounty_balances: Map<ContractAddress, u256>, // Tracks available bounties per user
         contract_paused: bool, // Pause state for emergency control
         strk_token_address: ContractAddress,
-        contributor_reports: Map<(ContractAddress, u256), (felt252, bool)>,
+        contributor_reports: Map<(ContractAddress, u256), (ByteArray, bool)>,
         // the persons contract address and the project and
         // a link to the full report description and
         //  a status that only the validator can change
@@ -140,7 +141,6 @@ pub mod Fortichain {
             ref self: ContractState,
             project_info: ByteArray,
             smart_contract_address: ContractAddress,
-            contact: ByteArray,
             signature_request: bool,
             deadline: u64,
         ) -> u256 {
@@ -152,7 +152,6 @@ pub mod Fortichain {
                 info_uri: project_info,
                 creator_address: caller,
                 smart_contract_address,
-                contact,
                 signature_request,
                 is_active: true,
                 is_completed: false,
@@ -168,43 +167,16 @@ pub mod Fortichain {
             id
         }
 
-        fn edit_project(
-            ref self: ContractState,
-            id: u256,
-            info_uri: ByteArray,
-            smart_contract_address: ContractAddress,
-            contact: ByteArray,
-            signature_request: bool,
-            is_active: bool,
-            is_completed: bool,
-        ) {
+        fn edit_project(ref self: ContractState, id: u256, deadline: u64) {
             let project: Project = self.projects.read(id);
             assert(project.id > 0, PROJECT_NOT_FOUND);
             let caller = get_caller_address();
-            assert(project.creator_address == caller, ONLY_CREATOR_CAN_CLOSE);
+            assert(project.creator_address == caller, ONLY_CREATOR_CAN_EDIT);
+            assert(deadline > get_block_timestamp(), 'Deadline must be in the future');
             let mut project = self.projects.read(id);
             let timestamp: u64 = get_block_timestamp();
-
-            if project.info_uri != info_uri {
-                project.info_uri = info_uri;
-            }
-            if project.smart_contract_address != smart_contract_address {
-                project.smart_contract_address = smart_contract_address;
-            }
-            if project.contact != contact {
-                project.contact = contact;
-            }
-            if project.signature_request != signature_request {
-                project.signature_request = signature_request;
-            }
-            if project.is_active != is_active {
-                project.is_active = is_active;
-            }
-            if project.is_completed != is_completed {
-                project.is_completed = is_completed;
-            }
             project.updated_at = timestamp;
-
+            project.deadline = deadline;
             self.projects.write(project.id, project);
         }
 
@@ -450,12 +422,28 @@ pub mod Fortichain {
             token
         }
 
-        fn submit_report(ref self: ContractState, project_id: u256, link_to_work: felt252) -> bool {
+        fn submit_report(
+            ref self: ContractState, project_id: u256, link_to_work: ByteArray,
+        ) -> u256 {
             let project: Project = self.projects.read(project_id);
-            let caller = get_caller_address();
             assert(project.id > 0, PROJECT_NOT_FOUND);
+            let caller = get_caller_address();
+            let timestamp: u64 = get_block_timestamp();
+            let id: u256 = self.report_count.read() + 1;
+
+            let report = Report {
+                id,
+                contributor_address: caller,
+                project_id,
+                report_data: link_to_work.clone(),
+                created_at: timestamp,
+                updated_at: timestamp,
+            };
+            self.reports.write(id, report);
+            self.report_count.write(id);
             self.contributor_reports.write((caller, project_id), (link_to_work, false));
-            true
+
+            id
         }
 
         fn approve_a_report(
@@ -464,7 +452,7 @@ pub mod Fortichain {
             self.accesscontrol.assert_only_role(VALIDATOR_ROLE);
             let project: Project = self.projects.read(project_id);
             assert(project.id > 0, PROJECT_NOT_FOUND);
-            let (x, mut y): (felt252, bool) = self
+            let (x, mut y): (ByteArray, bool) = self
                 .contributor_reports
                 .read((submit_address, project_id));
 
@@ -489,7 +477,7 @@ pub mod Fortichain {
             assert(project.is_active, 'Project not active');
 
             // get the owner of the report approve status
-            let (_, mut y): (felt252, bool) = self
+            let (_, mut y): (ByteArray, bool) = self
                 .contributor_reports
                 .read((submitter_Address, project_id));
 
@@ -555,35 +543,15 @@ pub mod Fortichain {
 
         fn get_contributor_report(
             ref self: ContractState, project_id: u256, submitter_address: ContractAddress,
-        ) -> (felt252, bool) {
+        ) -> (ByteArray, bool) {
             let project: Project = self.projects.read(project_id);
             assert(project.id > 0, PROJECT_NOT_FOUND);
 
-            let (x, y): (felt252, bool) = self
+            let (x, y): (ByteArray, bool) = self
                 .contributor_reports
                 .read((submitter_address, project_id));
 
             (x, y)
-        }
-
-        fn new_report(ref self: ContractState, project_id: u256, link_to_work: ByteArray) -> u256 {
-            let project: Project = self.projects.read(project_id);
-            assert(project.id > 0, PROJECT_NOT_FOUND);
-            let caller = get_caller_address();
-            let timestamp: u64 = get_block_timestamp();
-            let id: u256 = self.report_count.read() + 1;
-            let report = Report {
-                id,
-                contributor_address: caller,
-                project_id,
-                report_data: link_to_work.clone(),
-                created_at: timestamp,
-                updated_at: timestamp,
-            };
-            self.reports.write(id, report);
-            self.report_count.write(id);
-
-            id
         }
 
         fn get_report(self: @ContractState, report_id: u256) -> Report {

@@ -55,14 +55,7 @@ const INVALID_ROLE: felt252 = selector!("INVALID_ROLE");
 fn test_successful_register_project() {
     let contract = contract();
     let smart_contract_address: ContractAddress = 0x0.try_into().unwrap();
-    contract
-        .register_project(
-            "12345",
-            smart_contract_address,
-            "https://github.com/test/test",
-            true,
-            get_block_timestamp() + 1000,
-        );
+    contract.register_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
 }
 
 #[test]
@@ -71,41 +64,19 @@ fn test_successful_edit_project() {
     let smart_contract_address: ContractAddress = 0x0.try_into().unwrap();
 
     let id: u256 = contract
-        .register_project(
-            "12345",
-            smart_contract_address,
-            "https://github.com/test/test",
-            true,
-            get_block_timestamp() + 1000,
-        );
-
-    let new_smart_contract_address: ContractAddress = 0x1.try_into().unwrap();
-    contract
-        .edit_project(
-            id,
-            "12346",
-            new_smart_contract_address,
-            "https://gitlab.com/test/test",
-            false,
-            false,
-            true,
-        );
+        .register_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
+    contract.edit_project(id, get_block_timestamp() + 1200);
 
     let project = contract.view_project(id);
-    assert(project.info_uri == "12346", 'URI not updated');
-    assert(project.smart_contract_address == new_smart_contract_address, 'Address not updated');
+    assert(project.deadline == get_block_timestamp() + 1200, 'deadline not updated');
 }
 
 #[test]
 #[should_panic]
 fn test_failed_edit_project() {
     let contract = contract();
-    let smart_contract_address: ContractAddress = 0x0.try_into().unwrap();
     let id: u256 = 1;
-    contract
-        .edit_project(
-            id, "12346", smart_contract_address, "https://gitlab.com/test/test", false, false, true,
-        );
+    contract.edit_project(id, get_block_timestamp() + 1200);
 }
 
 #[test]
@@ -113,13 +84,7 @@ fn test_view_project() {
     let contract = contract();
     let smart_contract_address: ContractAddress = 0x0.try_into().unwrap();
     let id: u256 = contract
-        .register_project(
-            "12345",
-            smart_contract_address,
-            "https://github.com/test/test",
-            true,
-            get_block_timestamp() + 1000,
-        );
+        .register_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
     let project = contract.view_project(id);
     assert(project.info_uri == "12345", 'Project Not Found');
 }
@@ -128,14 +93,7 @@ fn test_view_project() {
 fn test_total_projects() {
     let contract = contract();
     let smart_contract_address: ContractAddress = 0x0.try_into().unwrap();
-    contract
-        .register_project(
-            "12345",
-            smart_contract_address,
-            "https://github.com/test/test",
-            true,
-            get_block_timestamp() + 1000,
-        );
+    contract.register_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
     let total = contract.total_projects();
     assert(total == 1, 'Failed to fetch total');
 }
@@ -150,13 +108,7 @@ fn test_close_project_before_deadline() {
     let creator_address: ContractAddress = 0x1.try_into().unwrap();
     start_cheat_caller_address(contract_address, creator_address);
     let id: u256 = contract
-        .register_project(
-            "12345",
-            smart_contract_address,
-            "https://github.com/test/test",
-            true,
-            get_block_timestamp() + 1000,
-        );
+        .register_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
 
     contract.close_project(id, creator_address);
 
@@ -173,13 +125,7 @@ fn test_close_project_success() {
 
     start_cheat_caller_address(contract_address, creator_address);
     let id: u256 = contract
-        .register_project(
-            "12345",
-            smart_contract_address,
-            "https://github.com/test/test",
-            true,
-            get_block_timestamp() + 1000,
-        );
+        .register_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
 
     start_cheat_block_timestamp(contract_address, block_timestamp: get_block_timestamp() + 1200);
     contract.close_project(id, creator_address);
@@ -197,13 +143,7 @@ fn test_failed_close_project() {
     let creator_address: ContractAddress = 0x1.try_into().unwrap();
     start_cheat_caller_address(contract_address, creator_address);
     let id: u256 = contract
-        .register_project(
-            "12345",
-            smart_contract_address,
-            "https://github.com/test/test",
-            true,
-            get_block_timestamp() + 1000,
-        );
+        .register_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
     stop_cheat_caller_address(creator_address);
     let creator_address: ContractAddress = 0x2.try_into().unwrap();
     contract.close_project(id, creator_address);
@@ -217,13 +157,7 @@ fn test_successful_get_in_progress_projects() {
     let creator_address: ContractAddress = 0x1.try_into().unwrap();
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            "12345",
-            smart_contract_address,
-            "https://github.com/test/test",
-            true,
-            get_block_timestamp() + 1000,
-        );
+        .register_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
     contract.mark_project_in_progress(id);
     stop_cheat_caller_address(creator_address);
     let in_progress = contract.all_in_progress_projects();
@@ -238,13 +172,7 @@ fn test_successful_get_completed_projects() {
     let creator_address: ContractAddress = 0x1.try_into().unwrap();
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            "12345",
-            smart_contract_address,
-            "https://github.com/test/test",
-            true,
-            get_block_timestamp() + 1000,
-        );
+        .register_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
     contract.mark_project_completed(id);
     stop_cheat_caller_address(creator_address);
     let completed = contract.all_completed_projects();
@@ -267,13 +195,7 @@ fn test_successful_escrow_creation() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            "12345",
-            smart_contract_address,
-            "https://github.com/test/test",
-            true,
-            get_block_timestamp() + 1000,
-        );
+        .register_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
 
     let escrow_id = contract.fund_project(id, 200, 60);
     stop_cheat_caller_address(creator_address);
@@ -309,13 +231,7 @@ fn test_escrow_creation_with_0_STRK() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            "12345",
-            smart_contract_address,
-            "https://github.com/test/test",
-            true,
-            get_block_timestamp() + 1000,
-        );
+        .register_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
 
     let _escrow_id = contract.fund_project(id, 0, 60);
     stop_cheat_caller_address(creator_address);
@@ -338,13 +254,7 @@ fn test_escrow_creation_with_unlocktime_in_the_present() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            "12345",
-            smart_contract_address,
-            "https://github.com/test/test",
-            true,
-            get_block_timestamp() + 1000,
-        );
+        .register_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
 
     let _escrow_id = contract.fund_project(id, 60, 0);
     stop_cheat_caller_address(creator_address);
@@ -368,13 +278,7 @@ fn test_escrow_creation_with_low_balance() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            "12345",
-            smart_contract_address,
-            "https://github.com/test/test",
-            true,
-            get_block_timestamp() + 1000,
-        );
+        .register_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
 
     let _escrow_id = contract.fund_project(id, 60, 0);
     stop_cheat_caller_address(creator_address);
@@ -398,13 +302,7 @@ fn test_escrow_creation_funding_another_person_project() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address_2);
     let id = contract
-        .register_project(
-            "12345",
-            smart_contract_address,
-            "https://github.com/test/test",
-            true,
-            get_block_timestamp() + 1000,
-        );
+        .register_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
 
     let _escrow_id = contract.fund_project(id, 0, 60);
     stop_cheat_caller_address(creator_address);
@@ -426,13 +324,7 @@ fn test_successful_add_escrow_funds() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            "12345",
-            smart_contract_address,
-            "https://github.com/test/test",
-            true,
-            get_block_timestamp() + 1000,
-        );
+        .register_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
 
     let escrow_id = contract.fund_project(id, 200, 1200);
 
@@ -471,13 +363,7 @@ fn test_add_escrow_funds_with_low_funds() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            "12345",
-            smart_contract_address,
-            "https://github.com/test/test",
-            true,
-            get_block_timestamp() + 1000,
-        );
+        .register_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
 
     let escrow_id = contract.fund_project(id, 200, 60);
 
@@ -511,13 +397,7 @@ fn test_add_escrow_funds_to_another_person_escrow() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            "12345",
-            smart_contract_address,
-            "https://github.com/test/test",
-            true,
-            get_block_timestamp() + 1000,
-        );
+        .register_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
 
     let escrow_id = contract.fund_project(id, 200, 60);
 
@@ -544,13 +424,7 @@ fn test_successful_pull_escrow_funds() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            "12345",
-            smart_contract_address,
-            "https://github.com/test/test",
-            true,
-            get_block_timestamp() + 1000,
-        );
+        .register_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
 
     let escrow_id = contract.fund_project(id, 200, 60);
 
@@ -592,13 +466,7 @@ fn test_adding_funds_after_pulling_escrow_funds_before_time() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            "12345",
-            smart_contract_address,
-            "https://github.com/test/test",
-            true,
-            get_block_timestamp() + 1000,
-        );
+        .register_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
 
     let escrow_id = contract.fund_project(id, 200, 60);
 
@@ -625,13 +493,7 @@ fn test_adding_funds_after_pulling_escrow_funds() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            "12345",
-            smart_contract_address,
-            "https://github.com/test/test",
-            true,
-            get_block_timestamp() + 1000,
-        );
+        .register_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
 
     let escrow_id = contract.fund_project(id, 200, 60);
 
@@ -666,13 +528,7 @@ fn test_pull_someone_elses_escrow_funds() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            "12345",
-            smart_contract_address,
-            "https://github.com/test/test",
-            true,
-            get_block_timestamp() + 1000,
-        );
+        .register_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
 
     let escrow_id = contract.fund_project(id, 200, 60);
     stop_cheat_caller_address(creator_address);
@@ -694,14 +550,7 @@ fn test_pull_someone_elses_escrow_funds() {
 fn test_set_role() {
     let contract = contract();
     let smart_contract_address: ContractAddress = 0x0.try_into().unwrap();
-    contract
-        .register_project(
-            "12345",
-            smart_contract_address,
-            "https://github.com/test/test",
-            true,
-            get_block_timestamp() + 1000,
-        );
+    contract.register_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
 
     start_cheat_caller_address(contract.contract_address, OWNER());
     contract.set_role(VALIDATOR_ADDRESS(), VALIDATOR_ROLE, true);
@@ -716,14 +565,7 @@ fn test_set_role() {
 fn test_set_role_should_panic_when_invalid_role_is_passed() {
     let contract = contract();
     let smart_contract_address: ContractAddress = 0x0.try_into().unwrap();
-    contract
-        .register_project(
-            "12345",
-            smart_contract_address,
-            "https://github.com/test/test",
-            true,
-            get_block_timestamp() + 1000,
-        );
+    contract.register_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
 
     start_cheat_caller_address(contract.contract_address, OWNER());
     contract.set_role(VALIDATOR_ADDRESS(), INVALID_ROLE, true);
@@ -763,22 +605,16 @@ fn test_successful_report_submit() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            "12345",
-            smart_contract_address,
-            "https://github.com/test/test",
-            true,
-            get_block_timestamp() + 1000,
-        );
+        .register_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
 
     start_cheat_caller_address(contract_address, submitter_address);
-    let submit_report = contract.submit_report(id, 0x1234);
+    let submit_report = contract.submit_report(id, "0x1234");
     stop_cheat_caller_address(contract_address);
 
-    assert(submit_report, 'Failed to submit report');
+    assert(submit_report > 0, 'Failed to submit report');
     // let report_id = contract.total_reports(id);
-    let (x, y): (felt252, bool) = contract.get_contributor_report(id, submitter_address);
-    assert(x == 0x1234, 'Failed to write report');
+    let (x, y): (ByteArray, bool) = contract.get_contributor_report(id, submitter_address);
+    assert(x == "0x1234", 'Failed to write report');
     assert(!y, 'Failed write initail false');
 }
 
@@ -804,13 +640,13 @@ fn test_report_approve_should_panic_if_project_not_found() {
     let id = 40_256;
 
     start_cheat_caller_address(contract_address, submitter_address);
-    let submit_report = contract.submit_report(id, 0x1234);
+    let submit_report = contract.submit_report(id, "0x1234");
     stop_cheat_caller_address(contract_address);
 
-    assert(submit_report, 'Failed to submit report');
+    assert(submit_report > 0, 'Failed to submit report');
     // let report_id = contract.total_reports(id);
-    let (x, y): (felt252, bool) = contract.get_contributor_report(id, submitter_address);
-    assert(x == 0x1234, 'Failed to write report');
+    let (x, y): (ByteArray, bool) = contract.get_contributor_report(id, submitter_address);
+    assert(x == "0x1234", 'Failed to write report');
     assert(!y, 'Failed write initail false');
 }
 
@@ -832,13 +668,7 @@ fn test_approve_a_report_successfully() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            "12345",
-            smart_contract_address,
-            "https://github.com/test/test",
-            true,
-            get_block_timestamp() + 1000,
-        );
+        .register_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
 
     start_cheat_caller_address(contract.contract_address, OWNER());
     contract.set_role(VALIDATOR_ADDRESS(), VALIDATOR_ROLE, true);
@@ -848,15 +678,15 @@ fn test_approve_a_report_successfully() {
     assert(is_validator, 'wrong is_validator value');
 
     start_cheat_caller_address(contract_address, submitter_address);
-    contract.submit_report(id, 0x1234);
+    contract.submit_report(id, "0x1234");
     stop_cheat_caller_address(contract_address);
 
     start_cheat_caller_address(contract_address, VALIDATOR_ADDRESS());
     contract.approve_a_report(id, submitter_address);
     stop_cheat_caller_address(contract_address);
 
-    let (x, y): (felt252, bool) = contract.get_contributor_report(id, submitter_address);
-    assert(x == 0x1234, 'Failed to get correct report');
+    let (x, y): (ByteArray, bool) = contract.get_contributor_report(id, submitter_address);
+    assert(x == "0x1234", 'Failed to get correct report');
     assert(y, 'Failed write approve report');
 
     let array_of_contributors = contract.get_list_of_approved_contributors(id);
@@ -885,13 +715,7 @@ fn test_approve_a_report_should_panic_if_non_validator_tries_to_approve() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            "12345",
-            smart_contract_address,
-            "https://github.com/test/test",
-            true,
-            get_block_timestamp() + 1000,
-        );
+        .register_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
 
     start_cheat_caller_address(contract.contract_address, OWNER());
     contract.set_role(VALIDATOR_ADDRESS(), VALIDATOR_ROLE, true);
@@ -901,15 +725,15 @@ fn test_approve_a_report_should_panic_if_non_validator_tries_to_approve() {
     assert(is_validator, 'wrong is_validator value');
 
     start_cheat_caller_address(contract_address, submitter_address);
-    contract.submit_report(id, 0x1234);
+    contract.submit_report(id, "0x1234");
     stop_cheat_caller_address(contract_address);
 
     start_cheat_caller_address(contract_address, random_address);
     contract.approve_a_report(id, submitter_address);
     stop_cheat_caller_address(contract_address);
 
-    let (x, y): (felt252, bool) = contract.get_contributor_report(id, submitter_address);
-    assert(x == 0x1234, 'Failed to get correct report');
+    let (x, y): (ByteArray, bool) = contract.get_contributor_report(id, submitter_address);
+    assert(x == "0x1234", 'Failed to get correct report');
     assert(y, 'Failed write approve report');
 
     let array_of_contributors = contract.get_list_of_approved_contributors(id);
@@ -946,15 +770,15 @@ fn test_approve_a_report_should_panic_if_project_not_found() {
     assert(is_validator, 'wrong is_validator value');
 
     start_cheat_caller_address(contract_address, submitter_address);
-    contract.submit_report(id, 0x1234);
+    contract.submit_report(id, "0x1234");
     stop_cheat_caller_address(contract_address);
 
     start_cheat_caller_address(contract_address, random_address);
     contract.approve_a_report(id, submitter_address);
     stop_cheat_caller_address(contract_address);
 
-    let (x, y): (felt252, bool) = contract.get_contributor_report(id, submitter_address);
-    assert(x == 0x1234, 'Failed to get correct report');
+    let (x, y): (ByteArray, bool) = contract.get_contributor_report(id, submitter_address);
+    assert(x == "0x1234", 'Failed to get correct report');
     assert(y, 'Failed write approve report');
 
     let array_of_contributors = contract.get_list_of_approved_contributors(id);
@@ -980,13 +804,7 @@ fn test_successful_pay_of_an_approved_validator() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            "12345",
-            smart_contract_address,
-            "https://github.com/test/test",
-            true,
-            get_block_timestamp() + 1000,
-        );
+        .register_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
 
     let _escrow_id = contract.fund_project(id, 200, 60);
 
@@ -999,15 +817,15 @@ fn test_successful_pay_of_an_approved_validator() {
     assert(is_validator, 'wrong is_validator value');
 
     start_cheat_caller_address(contract_address, submitter_address);
-    contract.submit_report(id, 0x1234);
+    contract.submit_report(id, "0x1234");
     stop_cheat_caller_address(contract_address);
 
     start_cheat_caller_address(contract_address, VALIDATOR_ADDRESS());
     contract.approve_a_report(id, submitter_address);
     stop_cheat_caller_address(contract_address);
 
-    let (x, y): (felt252, bool) = contract.get_contributor_report(id, submitter_address);
-    assert(x == 0x1234, 'Failed to get correct report');
+    let (x, y): (ByteArray, bool) = contract.get_contributor_report(id, submitter_address);
+    assert(x == "0x1234", 'Failed to get correct report');
     assert(y, 'Failed write approve report');
     start_cheat_caller_address(contract_address, creator_address);
     contract.pay_an_approved_report(id, 4, submitter_address);
@@ -1034,15 +852,9 @@ fn test_successful_create_report() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            "12345",
-            smart_contract_address,
-            "https://github.com/test/test",
-            true,
-            get_block_timestamp() + 1000,
-        );
+        .register_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
     start_cheat_caller_address(contract_address, submitter_address);
-    let report_id = contract.new_report(id, "report.com");
+    let report_id = contract.submit_report(id, "report.com");
     start_cheat_caller_address(contract.contract_address, OWNER());
     contract.set_role(REPORT_ADDRESS(), REPORT_READER, true);
     stop_cheat_caller_address(contract.contract_address);
@@ -1072,15 +884,9 @@ fn test_successful_update_report() {
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, creator_address);
     let id = contract
-        .register_project(
-            "12345",
-            smart_contract_address,
-            "https://github.com/test/test",
-            true,
-            get_block_timestamp() + 1000,
-        );
+        .register_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
     start_cheat_caller_address(contract_address, submitter_address);
-    let report_id = contract.new_report(id, "report.com");
+    let report_id = contract.submit_report(id, "report.com");
     contract.update_report(report_id, id, "report.com/updated");
     start_cheat_caller_address(contract.contract_address, OWNER());
     contract.set_role(REPORT_ADDRESS(), REPORT_READER, true);

@@ -8,21 +8,11 @@ pub trait IFortichain<TContractState> {
         ref self: TContractState,
         project_info: ByteArray,
         smart_contract_address: ContractAddress,
-        contact: ByteArray,
         signature_request: bool,
         deadline: u64,
     ) -> u256;
 
-    fn edit_project(
-        ref self: TContractState,
-        id: u256,
-        info_uri: ByteArray,
-        smart_contract_address: ContractAddress,
-        contact: ByteArray,
-        signature_request: bool,
-        is_active: bool,
-        is_completed: bool,
-    );
+    fn edit_project(ref self: TContractState, id: u256, deadline: u64);
 
     fn close_project(ref self: TContractState, id: u256, creator_address: ContractAddress) -> bool;
 
@@ -50,7 +40,7 @@ pub trait IFortichain<TContractState> {
     fn get_erc20_address(self: @TContractState) -> ContractAddress;
 
     // --- Reports & Contributions ---
-    fn submit_report(ref self: TContractState, project_id: u256, link_to_work: felt252) -> bool;
+    fn submit_report(ref self: TContractState, project_id: u256, link_to_work: ByteArray) -> u256;
     fn approve_a_report(
         ref self: TContractState, project_id: u256, submit_address: ContractAddress,
     );
@@ -63,7 +53,7 @@ pub trait IFortichain<TContractState> {
 
     fn get_contributor_report(
         ref self: TContractState, project_id: u256, submitter_address: ContractAddress,
-    ) -> (felt252, bool);
+    ) -> (ByteArray, bool);
 
     fn get_list_of_approved_contributors(
         ref self: TContractState, project_id: u256,
@@ -79,7 +69,6 @@ pub trait IFortichain<TContractState> {
     );
 
     fn is_validator(self: @TContractState, role: felt252, address: ContractAddress) -> bool;
-    fn new_report(ref self: TContractState, project_id: u256, link_to_work: ByteArray) -> u256;
     fn get_report(self: @TContractState, report_id: u256) -> Report;
     fn update_report(
         ref self: TContractState, report_id: u256, project_id: u256, link_to_work: ByteArray,

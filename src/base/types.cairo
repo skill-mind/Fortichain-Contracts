@@ -6,7 +6,6 @@ pub struct Project {
     pub info_uri: ByteArray,
     pub creator_address: ContractAddress,
     pub smart_contract_address: ContractAddress,
-    pub contact: ByteArray,
     pub signature_request: bool,
     pub is_active: bool,
     pub is_completed: bool,
