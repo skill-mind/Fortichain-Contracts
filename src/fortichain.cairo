@@ -740,7 +740,7 @@ pub mod Fortichain {
             let cur_validator = self.project_validators.read(project_id);
 
             assert(
-                cur_validator.validator_address != 0.try_into().unwrap(),
+                cur_validator.validator_address == 0.try_into().unwrap(),
                 'Project already has a validator',
             );
 
