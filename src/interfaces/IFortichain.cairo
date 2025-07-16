@@ -79,6 +79,8 @@ pub trait IFortichain<TContractState> {
         ref self: TContractState, project_id: u256, validator_address: ContractAddress,
     );
 
+    fn get_assigned_project_validator(self: @TContractState, project_id: u256) -> Validator;
+
     fn get_total_validators(self: @TContractState) -> u256;
     fn get_validator(
         self: @TContractState, validator_address: ContractAddress,

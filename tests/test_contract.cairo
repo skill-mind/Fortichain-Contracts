@@ -755,6 +755,30 @@ fn test_reject_validator_profile() {
     assert(validator.status == 'rejected', 'Validator rejection failed');
 }
 
+#[test]
+fn test_assign_validator() {
+    let contract = contract();
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
+    start_cheat_caller_address(contract.contract_address, OWNER());
+    let project_id = contract
+        .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
+    contract.set_role(OWNER(), ADMIN_ROLE, true);
+
+    contract.register_validator_profile("1234", VALIDATOR_ADDRESS());
+
+    contract.approve_validator_profile(VALIDATOR_ADDRESS());
+
+    contract.assign_validator(project_id, VALIDATOR_ADDRESS());
+
+    assert(
+        contract
+            .get_assigned_project_validator(project_id)
+            .validator_address == VALIDATOR_ADDRESS(),
+        'INVALID VALIDATOR',
+    );
+}
+
 
 #[test]
 fn test_successful_report_submit() {

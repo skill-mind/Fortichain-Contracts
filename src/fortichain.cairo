@@ -749,6 +749,10 @@ pub mod Fortichain {
 
             self.project_validators.write(project_id, validator)
         }
+
+        fn get_assigned_project_validator(self: @ContractState, project_id: u256) -> Validator {
+            self.project_validators.read(project_id)
+        }
     }
     #[generate_trait]
     impl InternalFunctions of InternalFunctionsTrait {
