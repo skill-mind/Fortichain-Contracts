@@ -1,5 +1,5 @@
 use starknet::ContractAddress;
-use crate::base::types::{Escrow, Project, Report};
+use crate::base::types::{Escrow, Project, Report, Validator};
 
 #[starknet::interface]
 pub trait IFortichain<TContractState> {
@@ -78,4 +78,9 @@ pub trait IFortichain<TContractState> {
     fn assign_validator(
         ref self: TContractState, project_id: u256, validator_address: ContractAddress,
     );
+
+    fn get_total_validators(self: @TContractState) -> u256;
+    fn get_validator(
+        self: @TContractState, validator_address: ContractAddress,
+    ) -> (u256, Validator);
 }

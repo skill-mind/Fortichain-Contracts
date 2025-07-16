@@ -32,6 +32,7 @@ fn REPORT_ADDRESS() -> ContractAddress {
 const VALIDATOR_ROLE: felt252 = selector!("VALIDATOR_ROLE");
 const REPORT_READER: felt252 = selector!("REPORT_READER");
 const INVALID_ROLE: felt252 = selector!("INVALID_ROLE");
+const ADMIN_ROLE: felt252 = selector!("ADMIN_ROLE");
 
 // Fortichain contract deployment
 fn contract() -> IFortichainDispatcher {
@@ -708,6 +709,52 @@ fn test_set_role_should_panic_when_called_by_non_owner() {
     stop_cheat_caller_address(contract.contract_address);
 }
 
+#[test]
+fn test_register_validator_profile() {
+    let contract = contract();
+    let contract_address = contract.contract_address;
+
+    contract.register_validator_profile("1234", VALIDATOR_ADDRESS());
+
+    assert(contract.get_total_validators() == 1, 'Create validator failed');
+}
+
+#[test]
+fn test_approve_validator_profile() {
+    let contract = contract();
+    let contract_address = contract.contract_address;
+    start_cheat_caller_address(contract_address, OWNER());
+    contract.set_role(OWNER(), ADMIN_ROLE, true);
+    stop_cheat_caller_address(contract_address);
+
+    contract.register_validator_profile("1234", VALIDATOR_ADDRESS());
+
+    start_cheat_caller_address(contract_address, OWNER());
+    contract.approve_validator_profile(VALIDATOR_ADDRESS());
+
+    let (_, validator) = contract.get_validator(VALIDATOR_ADDRESS());
+
+    assert(validator.status == 'approved', 'Validator approval failed');
+}
+
+#[test]
+fn test_reject_validator_profile() {
+    let contract = contract();
+    let contract_address = contract.contract_address;
+    start_cheat_caller_address(contract_address, OWNER());
+    contract.set_role(OWNER(), ADMIN_ROLE, true);
+    stop_cheat_caller_address(contract_address);
+
+    contract.register_validator_profile("1234", VALIDATOR_ADDRESS());
+
+    start_cheat_caller_address(contract_address, OWNER());
+    contract.reject_validator_profile(VALIDATOR_ADDRESS());
+
+    let (_, validator) = contract.get_validator(VALIDATOR_ADDRESS());
+
+    assert(validator.status == 'rejected', 'Validator rejection failed');
+}
+
 
 #[test]
 fn test_successful_report_submit() {
@@ -1021,6 +1068,7 @@ fn test_successful_update_report() {
     assert(report.contributor_address == submitter_address, 'wrong submitter');
     assert(report.report_data == "report.com/updated", 'wrong report url');
 }
+
 
 #[test]
 #[available_gas(2000000)]

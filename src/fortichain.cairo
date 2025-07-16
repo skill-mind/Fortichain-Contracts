@@ -722,6 +722,16 @@ pub mod Fortichain {
             self.validators.write(validator_address, (id, validator));
         }
 
+        fn get_validator(
+            self: @ContractState, validator_address: ContractAddress,
+        ) -> (u256, Validator) {
+            self.validators.read(validator_address)
+        }
+
+        fn get_total_validators(self: @ContractState) -> u256 {
+            self.total_validators.read()
+        }
+
         fn assign_validator(
             ref self: ContractState, project_id: u256, validator_address: ContractAddress,
         ) {
@@ -811,7 +821,10 @@ pub mod Fortichain {
         ) {
             self.ownable.assert_only_owner();
             self.accesscontrol.assert_only_role(VALIDATOR_ROLE);
-            assert!((role == VALIDATOR_ROLE || role == REPORT_READER), "role not enable");
+            assert!(
+                (role == VALIDATOR_ROLE || role == REPORT_READER || role == ADMIN_ROLE),
+                "role not enable",
+            );
             if is_enable {
                 self.accesscontrol._grant_role(role, recipient);
             } else {
