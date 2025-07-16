@@ -1,6 +1,6 @@
 use starknet::ContractAddress;
 
-#[derive(Drop, Serde, PartialEq, starknet::Store)]
+#[derive(Drop, Clone, Serde, PartialEq, starknet::Store)]
 pub struct Project {
     pub id: u256,
     pub info_uri: ByteArray,

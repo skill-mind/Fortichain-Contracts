@@ -4,7 +4,7 @@ use crate::base::types::{Escrow, Project, Report};
 #[starknet::interface]
 pub trait IFortichain<TContractState> {
     // --- Project Management ---
-    fn register_project(
+    fn create_project(
         ref self: TContractState,
         project_info: ByteArray,
         smart_contract_address: ContractAddress,
@@ -19,7 +19,7 @@ pub trait IFortichain<TContractState> {
     fn total_projects(self: @TContractState) -> u256;
     fn all_completed_projects(self: @TContractState) -> Array<Project>;
     fn all_in_progress_projects(self: @TContractState) -> Array<Project>;
-    fn mark_project_completed(ref self: TContractState, project_id: u256);
+    fn project_is_completed(ref self: TContractState, project_id: u256) -> bool;
 
     // --- Escrow & Funding ---
     fn view_escrow(self: @TContractState, escrow_id: u256) -> Escrow;

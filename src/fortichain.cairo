@@ -72,7 +72,9 @@ pub mod Fortichain {
     #[event]
     #[derive(Drop, starknet::Event)]
     pub enum Event {
-        ProjectStatusChanged: ProjectStatusChanged,
+        ProjectCreated: ProjectCreated,
+        ProjectClosed: ProjectClosed,
+        ProjectEdited: ProjectEdited,
         EscrowCreated: EscrowCreated,
         EscrowFundingPulled: EscrowFundingPulled,
         EscrowFundsAdded: EscrowFundsAdded,
@@ -86,10 +88,26 @@ pub mod Fortichain {
     }
 
     #[derive(Drop, starknet::Event)]
-    pub struct ProjectStatusChanged {
+    pub struct ProjectCreated {
         pub project_id: u256,
-        pub status: bool // true for completed, false for in-progress
+        pub project_owner: ContractAddress,
+        pub created_at: u64,
     }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct ProjectClosed {
+        pub project_id: u256,
+        pub project_owner: ContractAddress,
+        pub closed_at: u64,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct ProjectEdited {
+        pub project_id: u256,
+        pub project_owner: ContractAddress,
+        pub edited_at: u64,
+    }
+
     #[derive(Drop, starknet::Event)]
     pub struct BountyWithdrawn {
         pub user: ContractAddress,
@@ -135,7 +153,7 @@ pub mod Fortichain {
 
     #[abi(embed_v0)]
     impl FortichainImpl of IFortichain<ContractState> {
-        fn register_project(
+        fn create_project(
             ref self: ContractState,
             project_info: ByteArray,
             smart_contract_address: ContractAddress,
@@ -143,6 +161,8 @@ pub mod Fortichain {
             deadline: u64,
         ) -> u256 {
             let timestamp: u64 = get_block_timestamp();
+            assert(deadline > get_block_timestamp(), 'Deadline not in future');
+            assert(0.try_into().unwrap() != smart_contract_address, 'Zero contract address');
             let id: u256 = self.project_count.read() + 1;
             let caller = get_caller_address();
             let project = Project {
@@ -164,6 +184,17 @@ pub mod Fortichain {
             self.project_count.write(id);
             self.in_progress_projects.write(id, true);
 
+            self
+                .emit(
+                    Event::ProjectCreated(
+                        ProjectCreated {
+                            project_id: id,
+                            project_owner: caller,
+                            created_at: get_block_timestamp(),
+                        },
+                    ),
+                );
+
             id
         }
 
@@ -172,11 +203,20 @@ pub mod Fortichain {
             assert(project.id > 0, PROJECT_NOT_FOUND);
             let caller = get_caller_address();
             assert(project.project_owner == caller, ONLY_OWNER_CAN_EDIT);
-            assert(deadline > get_block_timestamp(), 'Deadline must be in the future');
+            assert(deadline > get_block_timestamp(), 'Deadline has passed');
             let timestamp: u64 = get_block_timestamp();
             project.updated_at = timestamp;
             project.deadline = deadline;
             self.projects.write(project.id, project);
+
+            self
+                .emit(
+                    Event::ProjectEdited(
+                        ProjectEdited {
+                            project_id, project_owner: caller, edited_at: get_block_timestamp(),
+                        },
+                    ),
+                );
         }
 
         fn close_project(ref self: ContractState, project_id: u256) -> bool {
@@ -189,10 +229,22 @@ pub mod Fortichain {
             project.is_active = false;
             project.is_completed = true;
             project.updated_at = timestamp;
-            self.projects.write(project.id, project);
+            self.projects.write(project.id, project.clone());
 
             self.in_progress_projects.write(project_id, false);
             self.completed_projects.write(project_id, true);
+            self.update_project_completion_status(project_id, true);
+
+            self
+                .emit(
+                    Event::ProjectClosed(
+                        ProjectClosed {
+                            project_id,
+                            project_owner: project.project_owner,
+                            closed_at: get_block_timestamp(),
+                        },
+                    ),
+                );
 
             true
         }
@@ -221,32 +273,16 @@ pub mod Fortichain {
             self.get_project_by_completion_status(false)
         }
 
-        fn mark_project_completed(ref self: ContractState, project_id: u256) {
-            let caller = get_caller_address();
-            let mut project = self.projects.read(project_id);
-
-            assert(project.project_owner == caller, ONLY_OWNER_CAN_CLOSE);
-
-            project.is_active = false;
-            project.is_completed = true;
-            project.updated_at = get_block_timestamp();
-            self.projects.write(project_id, project);
-
-            self.update_project_completion_status(project_id, true);
-
-            self
-                .emit(
-                    Event::ProjectStatusChanged(
-                        ProjectStatusChanged { project_id: project_id, status: true },
-                    ),
-                );
+        fn project_is_completed(ref self: ContractState, project_id: u256) -> bool {
+            !self.in_progress_projects.read(project_id) && self.completed_projects.read(project_id)
         }
 
         fn fund_project(ref self: ContractState, project_id: u256, amount: u256) -> u256 {
             let caller = get_caller_address();
             let timestamp: u64 = get_block_timestamp();
             let mut project = self.view_project(project_id);
-            assert(amount > 0, 'Invalid fund amount');
+            assert(amount > 0, 'Zero fund amount');
+            assert(project.project_owner == caller, 'Only owner can fund project');
             assert(
                 project.deadline > get_block_timestamp() && project.is_active, 'Project not active',
             );
@@ -260,7 +296,6 @@ pub mod Fortichain {
             assert(erc20_dispatcher.get_balance(caller) > amount, 'Insufficient balance');
             let receiver = get_contract_address();
             let id: u256 = self.escrows_count.read() + 1;
-            assert(project.project_owner == caller, 'Can only fund your project');
 
             let success = self.process_payment(caller, amount, receiver);
             assert(success, 'Tokens transfer failed');
