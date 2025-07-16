@@ -13,8 +13,7 @@ pub mod Fortichain {
     };
     use starknet::{ContractAddress, get_block_timestamp, get_caller_address, get_contract_address};
     use crate::base::errors::Errors::{
-        CAN_ONLY_CLOSE_AFTER_DEADLINE, ONLY_CREATOR_CAN_CLOSE, ONLY_CREATOR_CAN_EDIT,
-        PROJECT_NOT_FOUND,
+        CAN_ONLY_CLOSE_AFTER_DEADLINE, ONLY_OWNER_CAN_CLOSE, ONLY_OWNER_CAN_EDIT, PROJECT_NOT_FOUND,
     };
     use crate::base::types::{Escrow, Project, Report, Validator};
     use super::IMockUsdcDispatcherTrait;
@@ -42,8 +41,6 @@ pub mod Fortichain {
     struct Storage {
         projects: Map<u256, Project>,
         escrows: Map<u256, Escrow>,
-        escrows_balance: Map<u256, u256>,
-        escrows_is_active: Map<u256, bool>,
         project_count: u256,
         escrows_count: u256,
         completed_projects: Map<u256, bool>,
@@ -59,6 +56,8 @@ pub mod Fortichain {
         // project id and a list of the approved contributors
         paid_contributors: Map<(u256, ContractAddress), bool>,
         validators: Map<ContractAddress, (u256, Validator)>,
+        project_validators: Map<u256, Validator>,
+        project_escrows: Map<u256, Escrow>,
         total_validators: u256,
         report_count: u256,
         reports: Map<u256, Report>,
@@ -103,7 +102,6 @@ pub mod Fortichain {
     pub struct EscrowCreated {
         pub escrow_id: u256,
         pub owner: ContractAddress,
-        pub unlock_time: u64,
         pub amount: u256,
     }
 
@@ -150,7 +148,7 @@ pub mod Fortichain {
             let project = Project {
                 id,
                 info_uri: project_info,
-                creator_address: caller,
+                project_owner: caller,
                 smart_contract_address,
                 signature_request,
                 is_active: true,
@@ -158,6 +156,8 @@ pub mod Fortichain {
                 created_at: timestamp,
                 updated_at: timestamp,
                 deadline,
+                validator_paid: false,
+                researchers_paid: false,
             };
 
             self.projects.write(id, project);
@@ -167,46 +167,43 @@ pub mod Fortichain {
             id
         }
 
-        fn edit_project(ref self: ContractState, id: u256, deadline: u64) {
-            let project: Project = self.projects.read(id);
+        fn edit_project(ref self: ContractState, project_id: u256, deadline: u64) {
+            let mut project = self.projects.read(project_id);
             assert(project.id > 0, PROJECT_NOT_FOUND);
             let caller = get_caller_address();
-            assert(project.creator_address == caller, ONLY_CREATOR_CAN_EDIT);
+            assert(project.project_owner == caller, ONLY_OWNER_CAN_EDIT);
             assert(deadline > get_block_timestamp(), 'Deadline must be in the future');
-            let mut project = self.projects.read(id);
             let timestamp: u64 = get_block_timestamp();
             project.updated_at = timestamp;
             project.deadline = deadline;
             self.projects.write(project.id, project);
         }
 
-        fn close_project(
-            ref self: ContractState, id: u256, creator_address: ContractAddress,
-        ) -> bool {
-            let project: Project = self.projects.read(id);
+        fn close_project(ref self: ContractState, project_id: u256) -> bool {
+            let caller = get_caller_address();
+            let mut project = self.projects.read(project_id);
             assert(project.id > 0, PROJECT_NOT_FOUND);
-            assert(project.creator_address == creator_address, ONLY_CREATOR_CAN_CLOSE);
+            assert(project.project_owner == caller, ONLY_OWNER_CAN_CLOSE);
             assert(project.deadline < get_block_timestamp(), CAN_ONLY_CLOSE_AFTER_DEADLINE);
-            let mut project = self.projects.read(id);
             let timestamp: u64 = get_block_timestamp();
             project.is_active = false;
             project.is_completed = true;
             project.updated_at = timestamp;
             self.projects.write(project.id, project);
 
-            self.in_progress_projects.write(id, false);
-            self.completed_projects.write(id, true);
+            self.in_progress_projects.write(project_id, false);
+            self.completed_projects.write(project_id, true);
 
             true
         }
 
-        fn view_project(self: @ContractState, id: u256) -> Project {
-            let project = self.projects.read(id);
+        fn view_project(self: @ContractState, project_id: u256) -> Project {
+            let project = self.projects.read(project_id);
             assert(project.id > 0, PROJECT_NOT_FOUND);
             project
         }
-        fn view_escrow(self: @ContractState, id: u256) -> Escrow {
-            let escrow = self.escrows.read(id);
+        fn view_escrow(self: @ContractState, escrow_id: u256) -> Escrow {
+            let escrow = self.escrows.read(escrow_id);
             assert(escrow.id > 0, 'ESCROW not found');
             escrow
         }
@@ -224,64 +221,46 @@ pub mod Fortichain {
             self.get_project_by_completion_status(false)
         }
 
-        fn mark_project_completed(ref self: ContractState, id: u256) {
+        fn mark_project_completed(ref self: ContractState, project_id: u256) {
             let caller = get_caller_address();
-            let mut project = self.projects.read(id);
+            let mut project = self.projects.read(project_id);
 
-            assert(project.creator_address == caller, ONLY_CREATOR_CAN_CLOSE);
+            assert(project.project_owner == caller, ONLY_OWNER_CAN_CLOSE);
 
             project.is_active = false;
             project.is_completed = true;
             project.updated_at = get_block_timestamp();
-            self.projects.write(id, project);
+            self.projects.write(project_id, project);
 
-            self.update_project_completion_status(id, true);
-
-            self
-                .emit(
-                    Event::ProjectStatusChanged(
-                        ProjectStatusChanged { project_id: id, status: true },
-                    ),
-                );
-        }
-
-        fn mark_project_in_progress(ref self: ContractState, id: u256) {
-            let caller = get_caller_address();
-            let mut project = self.projects.read(id);
-
-            assert(project.creator_address == caller, ONLY_CREATOR_CAN_CLOSE);
-
-            project.is_active = true;
-            project.is_completed = false;
-            project.updated_at = get_block_timestamp();
-            self.projects.write(id, project);
-
-            self.update_project_completion_status(id, false);
+            self.update_project_completion_status(project_id, true);
 
             self
                 .emit(
                     Event::ProjectStatusChanged(
-                        ProjectStatusChanged { project_id: id, status: false },
+                        ProjectStatusChanged { project_id: project_id, status: true },
                     ),
                 );
         }
 
-        fn fund_project(
-            ref self: ContractState, project_id: u256, amount: u256, lockTime: u64,
-        ) -> u256 {
-            assert(amount > 0, 'Invalid fund amount');
-            assert(lockTime > 0, 'unlock time not in the future');
-            let token = self.strk_token_address.read();
-            let erc20_dispatcher = super::IMockUsdcDispatcher { contract_address: token };
-            assert(
-                erc20_dispatcher.get_balance(get_caller_address()) > amount, 'Insufficient balance',
-            );
+        fn fund_project(ref self: ContractState, project_id: u256, amount: u256) -> u256 {
             let caller = get_caller_address();
             let timestamp: u64 = get_block_timestamp();
+            let mut project = self.view_project(project_id);
+            assert(amount > 0, 'Invalid fund amount');
+            assert(
+                project.deadline > get_block_timestamp() && project.is_active, 'Project not active',
+            );
+            assert(
+                self.project_escrows.read(project.id).id == 0
+                    && !self.project_escrows.read(project.id).is_active,
+                'Project has an active escrow',
+            );
+            let token = self.strk_token_address.read();
+            let erc20_dispatcher = super::IMockUsdcDispatcher { contract_address: token };
+            assert(erc20_dispatcher.get_balance(caller) > amount, 'Insufficient balance');
             let receiver = get_contract_address();
             let id: u256 = self.escrows_count.read() + 1;
-            let mut project = self.view_project(project_id);
-            assert(project.creator_address == caller, 'Can only fund your project');
+            assert(project.project_owner == caller, 'Can only fund your project');
 
             let success = self.process_payment(caller, amount, receiver);
             assert(success, 'Tokens transfer failed');
@@ -290,107 +269,105 @@ pub mod Fortichain {
                 id,
                 project_id: project.id,
                 projectOwner: caller,
-                amount: amount,
-                isLocked: true,
-                lockTime: timestamp + lockTime,
+                initial_deposit: (amount * 95_u256) / 100_u256,
+                current_amount: (amount * 95_u256) / 100_u256,
                 is_active: true,
                 created_at: timestamp,
                 updated_at: timestamp,
+                validator_paid: false,
+                researchers_paid: false,
             };
 
             self.escrows_count.write(id);
-            self.escrows_is_active.write(id, true);
-            self.escrows_balance.write(id, amount);
             self.escrows.write(id, escrow);
+            self.project_escrows.write(project.id, escrow);
 
             self
                 .emit(
                     Event::EscrowCreated(
-                        EscrowCreated {
-                            escrow_id: id, owner: caller, unlock_time: lockTime, amount: amount,
-                        },
+                        EscrowCreated { escrow_id: id, owner: caller, amount: amount },
                     ),
                 );
 
             id
         }
-        fn pull_escrow_funding(ref self: ContractState, escrow_id: u256) -> bool {
-            let cur_escrow_count = self.escrows_count.read();
 
-            let caller = get_caller_address();
-            let timestamp: u64 = get_block_timestamp();
-            let contract = get_contract_address();
+        // fn pull_escrow_funding(ref self: ContractState, escrow_id: u256) -> bool {
+        //     let cur_escrow_count = self.escrows_count.read();
 
-            assert((escrow_id > 0) && (escrow_id >= cur_escrow_count), 'invalid escrow id');
-            let mut escrow = self.view_escrow(escrow_id);
-            let project = self.projects.read(escrow.project_id);
-            assert(timestamp > project.deadline, 'Invalid time');
+        //     let caller = get_caller_address();
+        //     let timestamp: u64 = get_block_timestamp();
+        //     let contract = get_contract_address();
 
-            assert(escrow.lockTime <= timestamp, 'Unlock time in the future');
-            assert(caller == escrow.projectOwner, 'not your escrow');
+        //     assert((escrow_id > 0) && (escrow_id <= cur_escrow_count), 'invalid escrow id');
+        //     let mut escrow = self.view_escrow(escrow_id);
+        //     let project = self.view_project(escrow.project_id);
+        //     assert(timestamp > project.deadline, 'Invalid time');
 
-            assert(escrow.is_active, 'No funds to pull out');
+        //     assert(escrow.lockTime <= timestamp, 'Unlock time in the future');
+        //     assert(caller == escrow.projectOwner, 'not your escrow');
 
-            let amount = escrow.amount;
+        //     assert(escrow.is_active, 'Escrow not active');
+        //     assert(escrow.current_amount > 0, 'No funds to pull out');
 
-            escrow.amount = 0;
-            escrow.lockTime = 0;
-            escrow.isLocked = false;
-            escrow.is_active = false;
-            escrow.updated_at = timestamp;
+        //     let amount = escrow.current_amount;
 
-            self.escrows_is_active.write(escrow_id, false);
-            self.escrows_balance.write(escrow_id, 0);
-            self.escrows.write(escrow_id, escrow);
+        //     escrow.current_amount = 0;
+        //     escrow.lockTime = 0;
+        //     escrow.isLocked = false;
+        //     escrow.is_active = false;
+        //     escrow.updated_at = timestamp;
 
-            let token = self.strk_token_address.read();
+        //     self.project_escrows.write(project.id, escrow);
+        //     self.escrows.write(escrow_id, escrow);
 
-            let erc20_dispatcher = super::IMockUsdcDispatcher { contract_address: token };
+        //     let token = self.strk_token_address.read();
 
-            let contract_bal = erc20_dispatcher.get_balance(contract);
-            assert(contract_bal >= amount, 'Insufficient funds');
-            let success = erc20_dispatcher.transferFrom(contract, caller, amount);
-            assert(success, 'token withdrawal fail...');
+        //     let erc20_dispatcher = super::IMockUsdcDispatcher { contract_address: token };
 
-            self
-                .emit(
-                    Event::EscrowFundingPulled(
-                        EscrowFundingPulled { escrow_id: escrow_id, owner: caller },
-                    ),
-                );
+        //     let contract_bal = erc20_dispatcher.get_balance(contract);
+        //     assert(contract_bal >= amount, 'Insufficient funds');
+        //     let success = erc20_dispatcher.transferFrom(contract, caller, amount);
+        //     assert(success, 'token withdrawal fail...');
 
-            true
-        }
+        //     self
+        //         .emit(
+        //             Event::EscrowFundingPulled(
+        //                 EscrowFundingPulled { escrow_id: escrow_id, owner: caller },
+        //             ),
+        //         );
+
+        //     true
+        // }
 
         fn add_escrow_funding(ref self: ContractState, escrow_id: u256, amount: u256) -> bool {
             let cur_escrow_count = self.escrows_count.read();
-            assert((escrow_id > 0) && (escrow_id >= cur_escrow_count), 'invalid escrow id');
+            assert((escrow_id > 0) && (escrow_id <= cur_escrow_count), 'invalid escrow id');
             let mut escrow = self.view_escrow(escrow_id);
+            let initial_deposit = escrow.initial_deposit;
+            let current_amount = escrow.current_amount;
             let project = self.projects.read(escrow.project_id);
-            assert(get_block_timestamp() > project.deadline, 'Invalid time');
+            assert(get_block_timestamp() < project.deadline, 'Invalid time');
 
             let caller = get_caller_address();
             let timestamp: u64 = get_block_timestamp();
             let contract = get_contract_address();
 
-            assert(escrow.lockTime >= timestamp, 'Escrow has Matured');
             assert(escrow.is_active, 'escrow not active');
             assert(caller == escrow.projectOwner, 'not your escrow');
 
             let success = self.process_payment(caller, amount, contract);
             assert(success, 'Tokens transfer failed');
-            escrow.amount += amount;
-
             escrow.updated_at = timestamp;
-
-            self.escrows_balance.write(escrow_id, escrow.amount);
+            escrow.initial_deposit = initial_deposit + (amount * 95_u256) / 100_u256;
+            escrow.current_amount = current_amount + (amount * 95_u256) / 100_u256;
             self.escrows.write(escrow_id, escrow);
 
             self
                 .emit(
                     Event::EscrowFundsAdded(
                         EscrowFundsAdded {
-                            escrow_id: escrow_id, owner: caller, new_amount: escrow.amount,
+                            escrow_id: escrow_id, owner: caller, new_amount: escrow.initial_deposit,
                         },
                     ),
                 );
@@ -422,9 +399,7 @@ pub mod Fortichain {
             token
         }
 
-        fn submit_report(
-            ref self: ContractState, project_id: u256, link_to_work: ByteArray,
-        ) -> u256 {
+        fn submit_report(ref self: ContractState, project_id: u256, report_uri: ByteArray) -> u256 {
             let project: Project = self.projects.read(project_id);
             assert(project.id > 0, PROJECT_NOT_FOUND);
             let caller = get_caller_address();
@@ -435,18 +410,18 @@ pub mod Fortichain {
                 id,
                 contributor_address: caller,
                 project_id,
-                report_data: link_to_work.clone(),
+                report_data: report_uri.clone(),
                 created_at: timestamp,
                 updated_at: timestamp,
             };
             self.reports.write(id, report);
             self.report_count.write(id);
-            self.contributor_reports.write((caller, project_id), (link_to_work, false));
+            self.contributor_reports.write((caller, project_id), (report_uri, false));
 
             id
         }
 
-        fn approve_a_report(
+        fn approve_report(
             ref self: ContractState, project_id: u256, submit_address: ContractAddress,
         ) {
             self.accesscontrol.assert_only_role(VALIDATOR_ROLE);
@@ -462,43 +437,87 @@ pub mod Fortichain {
             self.approved_contributor_reports.entry(project_id).append().write(submit_address);
         }
 
-        fn pay_an_approved_report(
-            ref self: ContractState,
-            project_id: u256,
-            amount: u256,
-            submitter_Address: ContractAddress,
-        ) {
-            assert(amount > 0, 'Invalid fund amount');
-            let caller = get_caller_address();
-            self.accesscontrol.assert_only_role(VALIDATOR_ROLE);
+        fn pay_validator(ref self: ContractState, project_id: u256) {
+            self.accesscontrol.assert_only_role(ADMIN_ROLE);
+            let mut project = self.view_project(project_id);
+            let mut escrow = self.project_escrows.read(project.id);
+            let validator = self.project_validators.read(project.id);
+
+            assert(
+                project.is_completed
+                    && project.deadline < get_block_timestamp()
+                    && !project.is_active,
+                'Project ongoing',
+            );
+
+            assert(validator.id > 0, 'No validator assigned');
+
+            assert(!project.validator_paid && !escrow.validator_paid, 'Validator already paid');
+
+            assert(escrow.id > 0 && escrow.is_active, 'No escrow available');
+            assert(escrow.current_amount > 0, 'No escrow funds');
+
+            let validator_pay = (escrow.initial_deposit * 45_u256) / 100_u256;
+
+            let success = self
+                .process_payment(
+                    get_contract_address(), validator_pay, validator.validator_address,
+                );
+            assert(success, 'Tokens transfer failed');
+
+            escrow.validator_paid = true;
+            escrow.current_amount -= validator_pay;
+
+            self.project_escrows.write(project_id, escrow);
+            project.validator_paid = true;
+            self.projects.write(project_id, project);
+        }
+
+        fn pay_researchers(ref self: ContractState, project_id: u256) {}
+
+        fn pay_approved_reports(ref self: ContractState, project_id: u256) {
+            self.accesscontrol.assert_only_role(ADMIN_ROLE);
 
             let mut project: Project = self.view_project(project_id);
-            assert(project.creator_address == caller, 'Only project owner can pay');
             assert(project.is_active, 'Project not active');
+            let mut escrow = self.project_escrows.read(project_id);
+            assert(escrow.id > 0, 'Invalid Escrow');
+            assert(!escrow.researchers_paid, 'Researchers have been paid');
+            assert(escrow.current_amount > 0, 'Zero escrow balance');
 
             // get the owner of the report approve status
-            let (_, mut y): (ByteArray, bool) = self
-                .contributor_reports
-                .read((submitter_Address, project_id));
+            // let (_, mut y): (ByteArray, bool) = self
+            //     .contributor_reports
+            //     .read((submitter_Address, project_id));
 
-            assert(y, 'Report not approved');
+            // assert(y, 'Report not approved');
 
-            let _get_list_of_approved_contributors: Array<ContractAddress> = self
+            let list_of_approved_contributors: Array<ContractAddress> = self
                 .get_list_of_approved_contributors(project_id);
-            // should be checked here
 
-            // assert that the report_id has not been paid
-            let mut paid_report: bool = self.paid_contributors.read((project_id, caller));
-            assert(!paid_report, 'Report already paid');
-            paid_report = true;
-            self.paid_contributors.write((project_id, submitter_Address), true);
+            let len = list_of_approved_contributors.len();
+            let mut i: u32 = 0;
 
-            let timestamp: u64 = get_block_timestamp();
-            project.updated_at = timestamp;
+            while i != len {
+                let address: ContractAddress = *list_of_approved_contributors.at(i);
+                self.paid_contributors.write((project_id, address), true);
+                let success = self
+                    .process_payment(
+                        get_contract_address(),
+                        ((escrow.initial_deposit * 50_u256) / 100_u256) / len.into(),
+                        address,
+                    );
+                assert(success, 'Tokens transfer failed');
+                i += 1;
+            }
+
+            project.researchers_paid = true;
+            project.updated_at = get_block_timestamp();
             self.projects.write(project_id, project);
 
-            let success = self.process_payment(get_contract_address(), amount, submitter_Address);
-            assert(success, 'Tokens transfer failed');
+            escrow.researchers_paid = true;
+            escrow.updated_at = get_block_timestamp();
+            self.escrows.write(escrow.id, escrow)
         }
 
 
@@ -562,7 +581,7 @@ pub mod Fortichain {
         }
 
         fn update_report(
-            ref self: ContractState, report_id: u256, project_id: u256, link_to_work: ByteArray,
+            ref self: ContractState, report_id: u256, project_id: u256, report_uri: ByteArray,
         ) -> bool {
             let project: Project = self.projects.read(project_id);
             assert(project.id > 0, PROJECT_NOT_FOUND);
@@ -570,7 +589,7 @@ pub mod Fortichain {
 
             let mut report = self.reports.read(report_id);
             assert(report.contributor_address == caller, 'Only report owner can update');
-            report.report_data = link_to_work.clone();
+            report.report_data = report_uri.clone();
             report.updated_at = get_block_timestamp();
 
             self.reports.write(report_id, report);
@@ -623,6 +642,7 @@ pub mod Fortichain {
 
             (true, new_balance)
         }
+
         fn add_user_bounty_balance(ref self: ContractState, user: ContractAddress, amount: u256) {
             self.ownable.assert_only_owner();
             assert(amount > 0, 'Invalid amount');
@@ -665,6 +685,24 @@ pub mod Fortichain {
             validator.status = 'rejected';
 
             self.validators.write(validator_address, (id, validator));
+        }
+
+        fn assign_validator(
+            ref self: ContractState, project_id: u256, validator_address: ContractAddress,
+        ) {
+            self.accesscontrol.assert_only_role(ADMIN_ROLE);
+
+            let cur_validator = self.project_validators.read(project_id);
+
+            assert(
+                cur_validator.validator_address != 0.try_into().unwrap(),
+                'Project already has a validator',
+            );
+
+            let (_, validator) = self.validators.read(validator_address);
+            assert(validator.status == 'approved', 'Unapproved validator');
+
+            self.project_validators.write(project_id, validator)
         }
     }
     #[generate_trait]

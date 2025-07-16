@@ -11,28 +11,25 @@ pub trait IFortichain<TContractState> {
         signature_request: bool,
         deadline: u64,
     ) -> u256;
+    fn edit_project(ref self: TContractState, project_id: u256, deadline: u64);
 
-    fn edit_project(ref self: TContractState, id: u256, deadline: u64);
+    fn close_project(ref self: TContractState, project_id: u256) -> bool;
 
-    fn close_project(ref self: TContractState, id: u256, creator_address: ContractAddress) -> bool;
-
-    fn view_project(self: @TContractState, id: u256) -> Project;
+    fn view_project(self: @TContractState, project_id: u256) -> Project;
     fn total_projects(self: @TContractState) -> u256;
     fn all_completed_projects(self: @TContractState) -> Array<Project>;
     fn all_in_progress_projects(self: @TContractState) -> Array<Project>;
-
-    fn mark_project_completed(ref self: TContractState, id: u256);
-    fn mark_project_in_progress(ref self: TContractState, id: u256);
+    fn mark_project_completed(ref self: TContractState, project_id: u256);
 
     // --- Escrow & Funding ---
-    fn view_escrow(self: @TContractState, id: u256) -> Escrow;
-    fn fund_project(
-        ref self: TContractState, project_id: u256, amount: u256, lockTime: u64,
-    ) -> u256;
-    fn pull_escrow_funding(ref self: TContractState, escrow_id: u256) -> bool;
+    fn view_escrow(self: @TContractState, escrow_id: u256) -> Escrow;
+    fn fund_project(ref self: TContractState, project_id: u256, amount: u256) -> u256;
+    // fn pull_escrow_funding(ref self: TContractState, escrow_id: u256) -> bool;
     fn add_escrow_funding(ref self: TContractState, escrow_id: u256, amount: u256) -> bool;
 
     // --- Payments ---
+    fn pay_validator(ref self: TContractState, project_id: u256);
+    fn pay_researchers(ref self: TContractState, project_id: u256);
     fn process_payment(
         ref self: TContractState, payer: ContractAddress, amount: u256, recipient: ContractAddress,
     ) -> bool;
@@ -40,16 +37,9 @@ pub trait IFortichain<TContractState> {
     fn get_erc20_address(self: @TContractState) -> ContractAddress;
 
     // --- Reports & Contributions ---
-    fn submit_report(ref self: TContractState, project_id: u256, link_to_work: ByteArray) -> u256;
-    fn approve_a_report(
-        ref self: TContractState, project_id: u256, submit_address: ContractAddress,
-    );
-    fn pay_an_approved_report(
-        ref self: TContractState,
-        project_id: u256,
-        amount: u256,
-        submitter_Address: ContractAddress,
-    );
+    fn submit_report(ref self: TContractState, project_id: u256, report_uri: ByteArray) -> u256;
+    fn approve_report(ref self: TContractState, project_id: u256, submit_address: ContractAddress);
+    fn pay_approved_reports(ref self: TContractState, project_id: u256);
 
     fn get_contributor_report(
         ref self: TContractState, project_id: u256, submitter_address: ContractAddress,
@@ -71,7 +61,7 @@ pub trait IFortichain<TContractState> {
     fn is_validator(self: @TContractState, role: felt252, address: ContractAddress) -> bool;
     fn get_report(self: @TContractState, report_id: u256) -> Report;
     fn update_report(
-        ref self: TContractState, report_id: u256, project_id: u256, link_to_work: ByteArray,
+        ref self: TContractState, report_id: u256, project_id: u256, report_uri: ByteArray,
     ) -> bool;
     fn withdraw_bounty(
         ref self: TContractState, amount: u256, recipient: ContractAddress,
@@ -84,4 +74,8 @@ pub trait IFortichain<TContractState> {
     );
     fn approve_validator_profile(ref self: TContractState, validator_address: ContractAddress);
     fn reject_validator_profile(ref self: TContractState, validator_address: ContractAddress);
+
+    fn assign_validator(
+        ref self: TContractState, project_id: u256, validator_address: ContractAddress,
+    );
 }
