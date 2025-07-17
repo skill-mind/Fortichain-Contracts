@@ -1308,6 +1308,218 @@ fn test_pay_validator_successfully() {
     assert(contract.view_project(project_id).validator_paid, 'Validator not paid');
 }
 
+#[test]
+#[should_panic(expected: 'Project ongoing')]
+fn test_pay_validator_should_fail_while_project_ongoing() {
+    // basic setup
+    let contract = contract();
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
+
+    let submitter_address: ContractAddress = 0x4.try_into().unwrap();
+
+    let erc20_address = contract.get_erc20_address();
+    let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
+
+    start_cheat_caller_address(erc20_address, OWNER());
+    // Make sure approve_user sets the allowance mapping for (owner, contract_address) to 10000.
+    token_dispatcher.mint(OWNER(), 500);
+    token_dispatcher.approve_user(contract_address, 500);
+
+    stop_cheat_caller_address(erc20_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    contract.set_role(OWNER(), ADMIN_ROLE, true);
+    let project_id = contract
+        .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
+
+    stop_cheat_caller_address(contract_address);
+
+    contract.register_validator_profile("1234", VALIDATOR_ADDRESS());
+
+    start_cheat_caller_address(contract_address, OWNER());
+    contract.approve_validator_profile(VALIDATOR_ADDRESS());
+
+    contract.assign_validator(project_id, VALIDATOR_ADDRESS());
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, submitter_address);
+    contract.submit_report(project_id, "0x1234");
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, VALIDATOR_ADDRESS());
+    contract.review_report(project_id, submitter_address, true);
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    contract.pay_validator(project_id);
+}
+
+#[test]
+#[should_panic(expected: 'No validator assigned')]
+fn test_pay_validator_should_fail_when_no_validator_is_assigned_to_project() {
+    // basic setup
+    let contract = contract();
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
+
+    start_cheat_caller_address(contract_address, OWNER());
+    contract.set_role(OWNER(), ADMIN_ROLE, true);
+    let project_id = contract
+        .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    start_cheat_block_timestamp(contract_address, get_block_timestamp() + 1100);
+    contract.close_project(project_id);
+    contract.pay_validator(project_id);
+}
+
+#[test]
+#[should_panic(expected: 'Validator already paid')]
+fn test_pay_validator_should_fail_if_validator_has_already_been_paid() {
+    // basic setup
+    let contract = contract();
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
+
+    let submitter_address: ContractAddress = 0x4.try_into().unwrap();
+
+    let erc20_address = contract.get_erc20_address();
+    let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
+
+    start_cheat_caller_address(erc20_address, OWNER());
+    // Make sure approve_user sets the allowance mapping for (owner, contract_address) to 10000.
+    token_dispatcher.mint(OWNER(), 500);
+    token_dispatcher.approve_user(contract_address, 500);
+
+    stop_cheat_caller_address(erc20_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    contract.set_role(OWNER(), ADMIN_ROLE, true);
+    let project_id = contract
+        .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
+
+    let escrow_id = contract.fund_project(project_id, 200);
+    stop_cheat_caller_address(contract_address);
+
+    contract.register_validator_profile("1234", VALIDATOR_ADDRESS());
+
+    start_cheat_caller_address(contract_address, OWNER());
+    contract.approve_validator_profile(VALIDATOR_ADDRESS());
+
+    contract.assign_validator(project_id, VALIDATOR_ADDRESS());
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, submitter_address);
+    contract.submit_report(project_id, "0x1234");
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, VALIDATOR_ADDRESS());
+    contract.review_report(project_id, submitter_address, true);
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    start_cheat_block_timestamp(contract_address, get_block_timestamp() + 1100);
+    contract.close_project(project_id);
+    contract.pay_validator(project_id);
+    contract.pay_validator(project_id);
+}
+
+#[test]
+#[should_panic(expected: 'No escrow available')]
+fn test_pay_validator_should_fail_if_project_has_not_been_funded() {
+    // basic setup
+    let contract = contract();
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
+
+    let submitter_address: ContractAddress = 0x4.try_into().unwrap();
+
+    let erc20_address = contract.get_erc20_address();
+    let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
+
+    start_cheat_caller_address(erc20_address, OWNER());
+    // Make sure approve_user sets the allowance mapping for (owner, contract_address) to 10000.
+    token_dispatcher.mint(OWNER(), 500);
+    token_dispatcher.approve_user(contract_address, 500);
+
+    stop_cheat_caller_address(erc20_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    contract.set_role(OWNER(), ADMIN_ROLE, true);
+    let project_id = contract
+        .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
+
+    contract.register_validator_profile("1234", VALIDATOR_ADDRESS());
+
+    start_cheat_caller_address(contract_address, OWNER());
+    contract.approve_validator_profile(VALIDATOR_ADDRESS());
+
+    contract.assign_validator(project_id, VALIDATOR_ADDRESS());
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, submitter_address);
+    contract.submit_report(project_id, "0x1234");
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, VALIDATOR_ADDRESS());
+    contract.review_report(project_id, submitter_address, true);
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    start_cheat_block_timestamp(contract_address, get_block_timestamp() + 1100);
+    contract.close_project(project_id);
+    contract.pay_validator(project_id);
+}
+
+#[test]
+#[should_panic(expected: 'No reports not reviewed')]
+fn test_pay_validator_should_fail_if_reports_have_not_been_reviewed() {
+    // basic setup
+    let contract = contract();
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
+
+    let submitter_address: ContractAddress = 0x4.try_into().unwrap();
+
+    let erc20_address = contract.get_erc20_address();
+    let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
+
+    start_cheat_caller_address(erc20_address, OWNER());
+    // Make sure approve_user sets the allowance mapping for (owner, contract_address) to 10000.
+    token_dispatcher.mint(OWNER(), 500);
+    token_dispatcher.approve_user(contract_address, 500);
+
+    stop_cheat_caller_address(erc20_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    contract.set_role(OWNER(), ADMIN_ROLE, true);
+    let project_id = contract
+        .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
+
+    contract.fund_project(project_id, 250);
+
+    stop_cheat_caller_address(contract_address);
+
+    contract.register_validator_profile("1234", VALIDATOR_ADDRESS());
+
+    start_cheat_caller_address(contract_address, OWNER());
+    contract.approve_validator_profile(VALIDATOR_ADDRESS());
+
+    contract.assign_validator(project_id, VALIDATOR_ADDRESS());
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, submitter_address);
+    contract.submit_report(project_id, "0x1234");
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    start_cheat_block_timestamp(contract_address, get_block_timestamp() + 1100);
+    contract.close_project(project_id);
+    contract.pay_validator(project_id);
+}
+
 
 #[test]
 fn test_pay_validator_event_emission() {
@@ -1373,7 +1585,7 @@ fn test_pay_validator_event_emission() {
 
 
 #[test]
-fn pay_approved_researchers_reports() {
+fn test_pay_approved_researchers_reports() {
     // basic setup
     let contract = contract();
     let contract_address = contract.contract_address;
@@ -1427,6 +1639,58 @@ fn pay_approved_researchers_reports() {
         token_dispatcher.get_balance(submitter_address) == escrow_after.current_amount,
         'researcher not paid',
     );
+}
+
+
+#[test]
+#[should_panic(expected: 'No escrow available')]
+fn test_pay_approved_researchers_reports_should_fail_if_no_escrow() {
+    // basic setup
+    let contract = contract();
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
+
+    let submitter_address: ContractAddress = 0x4.try_into().unwrap();
+
+    let erc20_address = contract.get_erc20_address();
+    let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
+
+    start_cheat_caller_address(erc20_address, OWNER());
+    // Make sure approve_user sets the allowance mapping for (owner, contract_address) to 10000.
+    token_dispatcher.mint(OWNER(), 500);
+    token_dispatcher.approve_user(contract_address, 500);
+
+    stop_cheat_caller_address(erc20_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    contract.set_role(OWNER(), ADMIN_ROLE, true);
+    let project_id = contract
+        .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
+
+    stop_cheat_caller_address(contract_address);
+
+    contract.register_validator_profile("1234", VALIDATOR_ADDRESS());
+
+    start_cheat_caller_address(contract_address, OWNER());
+    contract.approve_validator_profile(VALIDATOR_ADDRESS());
+
+    contract.assign_validator(project_id, VALIDATOR_ADDRESS());
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, submitter_address);
+    contract.submit_report(project_id, "0x1234");
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, VALIDATOR_ADDRESS());
+    contract.review_report(project_id, submitter_address, true);
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    start_cheat_block_timestamp(contract_address, get_block_timestamp() + 1100);
+    contract.close_project(project_id);
+    contract.pay_validator(project_id);
+
+    contract.pay_approved_researchers_reports(project_id);
 }
 
 #[test]

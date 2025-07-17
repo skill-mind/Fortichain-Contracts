@@ -39,29 +39,30 @@ pub mod Fortichain {
 
     #[storage]
     struct Storage {
+        // Project storage variables
         projects: Map<u256, Project>,
-        escrows: Map<u256, Escrow>,
         project_count: u256,
-        escrows_count: u256,
         completed_projects: Map<u256, bool>,
         in_progress_projects: Map<u256, bool>,
-        user_bounty_balances: Map<ContractAddress, u256>, // Tracks available bounties per user
-        contract_paused: bool, // Pause state for emergency control
-        strk_token_address: ContractAddress,
-        // bool - Checkes wether the report has been reviewed
-        contributor_reports: Map<(ContractAddress, u256), (Report, bool)>,
-        // the persons contract address and the project and
-        // a link to the full report description and
-        //  a status that only the validator can change
-        approved_contributor_reports: Map<u256, Vec<ContractAddress>>,
-        // project id and a list of the approved contributors
-        paid_contributors: Map<(u256, ContractAddress), bool>,
-        validators: Map<ContractAddress, (u256, Validator)>,
-        project_validators: Map<u256, Validator>,
+        // Escrow storage variables
+        escrows: Map<u256, Escrow>,
+        escrows_count: u256,
         project_escrows: Map<u256, Escrow>,
+        // STRK token address
+        strk_token_address: ContractAddress,
+        // Researchers storage variables
+        researchers_reports: Map<
+            (ContractAddress, u256), (Report, bool),
+        >, // bool - Checks wether the report has been reviewed
+        approved_researchers_reports: Map<u256, Vec<ContractAddress>>,
+        paid_researchers: Map<(u256, ContractAddress), bool>,
+        // Validators storage variables
+        validators: Map<ContractAddress, (u256, Validator)>,
         total_validators: u256,
-        report_count: u256,
+        project_validators: Map<u256, Validator>,
+        // Report storage variables
         reports: Map<u256, Report>,
+        report_count: u256,
         reviewed_reports: Map<u256, Vec<u256>>,
         #[substorage(v0)]
         ownable: OwnableComponent::Storage,
@@ -459,7 +460,7 @@ pub mod Fortichain {
             payer: ContractAddress,
             amount: u256,
             recipient: ContractAddress,
-        ) -> bool { // TODO: Uncomment code after ERC20 implementation
+        ) -> bool {
             let token = self.strk_token_address.read();
 
             let erc20_dispatcher = super::IMockUsdcDispatcher { contract_address: token };
@@ -497,7 +498,7 @@ pub mod Fortichain {
             };
             self.reports.write(id, report.clone());
             self.report_count.write(id);
-            self.contributor_reports.write((caller, project_id), (report, false));
+            self.researchers_reports.write((caller, project_id), (report, false));
 
             self
                 .emit(
@@ -523,7 +524,7 @@ pub mod Fortichain {
             assert(get_caller_address() == validator, 'Not assigned validator');
 
             let (mut x, mut y): (Report, bool) = self
-                .contributor_reports
+                .researchers_reports
                 .read((submit_address, project_id));
 
             assert(x.status == 'AWAITING_REVIEW', 'Report already reviewed');
@@ -531,7 +532,7 @@ pub mod Fortichain {
             if (accept) {
                 x.status = 'APPROVED';
 
-                self.approved_contributor_reports.entry(project_id).push(submit_address);
+                self.approved_researchers_reports.entry(project_id).push(submit_address);
             } else {
                 x.status = 'REJECTED';
             }
@@ -540,7 +541,7 @@ pub mod Fortichain {
             y = true;
             x.updated_at = get_block_timestamp();
             self.reports.write(x.id, x.clone());
-            self.contributor_reports.write((submit_address, project_id), (x.clone(), y));
+            self.researchers_reports.write((submit_address, project_id), (x.clone(), y));
             self.reviewed_reports.entry(project_id).push(x.id);
 
             self
@@ -575,8 +576,10 @@ pub mod Fortichain {
 
             assert(!project.validator_paid && !escrow.validator_paid, 'Validator already paid');
 
-            assert(escrow.id > 0 && escrow.is_active, 'No escrow available');
-            assert(escrow.current_amount > 0, 'No escrow funds');
+            assert(
+                escrow.id > 0 && escrow.is_active && escrow.current_amount > 0,
+                'No escrow available',
+            );
 
             // Make sure the project has at least one reviewed report
             assert(self.reviewed_reports.entry(project_id).len() != 0, 'No reports not reviewed');
@@ -619,9 +622,8 @@ pub mod Fortichain {
                 'Project not active',
             );
             let mut escrow = self.project_escrows.read(project_id);
-            assert(escrow.id > 0, 'Invalid Escrow');
+            assert(escrow.id > 0 && escrow.current_amount > 0, 'No escrow available');
             assert(!escrow.researchers_paid, 'Researchers have been paid');
-            assert(escrow.current_amount > 0, 'Zero escrow balance');
 
             let list_of_approved_contributors: Array<ContractAddress> = self
                 .get_list_of_approved_contributors(project_id);
@@ -632,7 +634,7 @@ pub mod Fortichain {
 
             while i != len {
                 let address: ContractAddress = *list_of_approved_contributors.at(i);
-                self.paid_contributors.write((project_id, address), true);
+                self.paid_researchers.write((project_id, address), true);
                 let success = self
                     .process_payment(get_contract_address(), researchers_pay / len.into(), address);
                 assert(success, 'Tokens transfer failed');
@@ -677,7 +679,7 @@ pub mod Fortichain {
             let project: Project = self.projects.read(project_id);
             assert(project.id > 0, PROJECT_NOT_FOUND);
 
-            let report_vec = self.approved_contributor_reports.entry(project_id);
+            let report_vec = self.approved_researchers_reports.entry(project_id);
             let len = report_vec.len();
             let mut i: u64 = 0;
             let mut approved_contributors = ArrayTrait::new();
@@ -696,7 +698,7 @@ pub mod Fortichain {
             let project: Project = self.projects.read(project_id);
             assert(project.id > 0, PROJECT_NOT_FOUND);
 
-            let paid_report: bool = self.paid_contributors.read((project_id, submitter_address));
+            let paid_report: bool = self.paid_researchers.read((project_id, submitter_address));
             paid_report
         }
 
@@ -707,7 +709,7 @@ pub mod Fortichain {
             assert(project.id > 0, PROJECT_NOT_FOUND);
 
             let (x, y): (Report, bool) = self
-                .contributor_reports
+                .researchers_reports
                 .read((submitter_address, project_id));
 
             (x, y)
@@ -900,7 +902,7 @@ pub mod Fortichain {
             let mut i: u256 = 1;
             let mut result: bool = false;
             while i != project_count + 1 {
-                let (_link, approved) = self.contributor_reports.read((user, i));
+                let (_link, approved) = self.researchers_reports.read((user, i));
                 if approved {
                     result = true;
                     break;
