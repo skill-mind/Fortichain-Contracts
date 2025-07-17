@@ -34,9 +34,10 @@ pub struct Escrow {
 #[derive(Drop, Clone, Serde, PartialEq, starknet::Store)]
 pub struct Report {
     pub id: u256,
-    pub contributor_address: ContractAddress,
+    pub report_uri: ByteArray,
+    pub researcher_address: ContractAddress,
     pub project_id: u256,
-    pub report_data: ByteArray,
+    pub status: felt252,
     pub created_at: u64,
     pub updated_at: u64,
 }

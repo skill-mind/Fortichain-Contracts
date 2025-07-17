@@ -38,12 +38,14 @@ pub trait IFortichain<TContractState> {
 
     // --- Reports & Contributions ---
     fn submit_report(ref self: TContractState, project_id: u256, report_uri: ByteArray) -> u256;
-    fn approve_report(ref self: TContractState, project_id: u256, submit_address: ContractAddress);
+    fn review_report(
+        ref self: TContractState, project_id: u256, submit_address: ContractAddress, accept: bool,
+    );
     fn pay_approved_reports(ref self: TContractState, project_id: u256);
 
     fn get_contributor_report(
         ref self: TContractState, project_id: u256, submitter_address: ContractAddress,
-    ) -> (ByteArray, bool);
+    ) -> (Report, bool);
 
     fn get_list_of_approved_contributors(
         ref self: TContractState, project_id: u256,

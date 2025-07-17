@@ -48,7 +48,8 @@ pub mod Fortichain {
         user_bounty_balances: Map<ContractAddress, u256>, // Tracks available bounties per user
         contract_paused: bool, // Pause state for emergency control
         strk_token_address: ContractAddress,
-        contributor_reports: Map<(ContractAddress, u256), (ByteArray, bool)>,
+        // bool - Checkes wether the report has been reviewed
+        contributor_reports: Map<(ContractAddress, u256), (Report, bool)>,
         // the persons contract address and the project and
         // a link to the full report description and
         //  a status that only the validator can change
@@ -61,6 +62,7 @@ pub mod Fortichain {
         total_validators: u256,
         report_count: u256,
         reports: Map<u256, Report>,
+        reviewed_reports: Map<u256, Vec<u256>>,
         #[substorage(v0)]
         ownable: OwnableComponent::Storage,
         #[substorage(v0)]
@@ -76,8 +78,11 @@ pub mod Fortichain {
         ProjectClosed: ProjectClosed,
         ProjectEdited: ProjectEdited,
         EscrowCreated: EscrowCreated,
-        EscrowFundingPulled: EscrowFundingPulled,
         EscrowFundsAdded: EscrowFundsAdded,
+        ReportSubmitted: ReportSubmitted,
+        ReportUpdated: ReportUpdated,
+        ReportReviewed: ReportReviewed,
+        ValidatorPaid: ValidatorPaid,
         BountyWithdrawn: BountyWithdrawn,
         #[flat]
         OwnableEvent: OwnableComponent::Event,
@@ -128,14 +133,41 @@ pub mod Fortichain {
         pub escrow_id: u256,
         pub owner: ContractAddress,
         pub new_amount: u256,
+        pub timestamp: u64,
     }
-
 
     #[derive(Drop, starknet::Event)]
-    pub struct EscrowFundingPulled {
-        pub escrow_id: u256,
-        pub owner: ContractAddress,
+    pub struct ReportSubmitted {
+        pub report_id: u256,
+        pub project_id: u256,
+        pub timestamp: u64,
     }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct ReportUpdated {
+        pub report_id: u256,
+        pub project_id: u256,
+        pub timestamp: u64,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct ReportReviewed {
+        pub report_id: u256,
+        pub project_id: u256,
+        pub validator: ContractAddress,
+        pub accepted: bool,
+        pub timestamp: u64,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct ValidatorPaid {
+        pub project_id: u256,
+        pub validator: ContractAddress,
+        pub amount: u256,
+        pub timestamp: u64,
+    }
+
+
     const PROJECT_OWNER_ROLE: felt252 = selector!("PROJECT_OWNER_ROLE");
     const RESEARCHER_ROLE: felt252 = selector!("RESEARCHER_ROLE");
     const VALIDATOR_ROLE: felt252 = selector!("VALIDATOR_ROLE");
@@ -304,7 +336,7 @@ pub mod Fortichain {
                 id,
                 project_id: project.id,
                 projectOwner: caller,
-                initial_deposit: (amount * 95_u256) / 100_u256,
+                initial_deposit: amount,
                 current_amount: (amount * 95_u256) / 100_u256,
                 is_active: true,
                 created_at: timestamp,
@@ -402,7 +434,10 @@ pub mod Fortichain {
                 .emit(
                     Event::EscrowFundsAdded(
                         EscrowFundsAdded {
-                            escrow_id: escrow_id, owner: caller, new_amount: escrow.initial_deposit,
+                            escrow_id,
+                            owner: caller,
+                            new_amount: escrow.initial_deposit,
+                            timestamp: get_block_timestamp(),
                         },
                     ),
                 );
@@ -437,46 +472,88 @@ pub mod Fortichain {
         fn submit_report(ref self: ContractState, project_id: u256, report_uri: ByteArray) -> u256 {
             let project: Project = self.projects.read(project_id);
             assert(project.id > 0, PROJECT_NOT_FOUND);
-            let caller = get_caller_address();
             let timestamp: u64 = get_block_timestamp();
+            assert(project.deadline > timestamp && project.is_active, 'Project is closed');
+            let caller = get_caller_address();
             let id: u256 = self.report_count.read() + 1;
 
             let report = Report {
                 id,
-                contributor_address: caller,
+                researcher_address: caller,
+                report_uri: report_uri.clone(),
                 project_id,
-                report_data: report_uri.clone(),
+                status: 'AWAITING_REVIEW',
                 created_at: timestamp,
                 updated_at: timestamp,
             };
-            self.reports.write(id, report);
+            self.reports.write(id, report.clone());
             self.report_count.write(id);
-            self.contributor_reports.write((caller, project_id), (report_uri, false));
+            self.contributor_reports.write((caller, project_id), (report, false));
 
+            self
+                .emit(
+                    Event::ReportSubmitted(
+                        ReportSubmitted {
+                            report_id: id, project_id, timestamp: get_block_timestamp(),
+                        },
+                    ),
+                );
             id
         }
 
-        fn approve_report(
-            ref self: ContractState, project_id: u256, submit_address: ContractAddress,
+        fn review_report(
+            ref self: ContractState,
+            project_id: u256,
+            submit_address: ContractAddress,
+            accept: bool,
         ) {
-            self.accesscontrol.assert_only_role(VALIDATOR_ROLE);
             let project: Project = self.projects.read(project_id);
             assert(project.id > 0, PROJECT_NOT_FOUND);
-            let (x, mut y): (ByteArray, bool) = self
+            let validator = self.get_assigned_project_validator(project_id).validator_address;
+            assert(validator != 0.try_into().unwrap(), 'Zero Validator');
+            assert(get_caller_address() == validator, 'Not assigned validator');
+
+            let (mut x, mut y): (Report, bool) = self
                 .contributor_reports
                 .read((submit_address, project_id));
 
-            y = true;
-            self.contributor_reports.write((submit_address, project_id), (x, y));
+            assert(x.status == 'AWAITING_REVIEW', 'Report already reviewed');
 
-            self.approved_contributor_reports.entry(project_id).append().write(submit_address);
+            if (accept) {
+                x.status = 'APPROVED';
+
+                self.approved_contributor_reports.entry(project_id).push(submit_address);
+            } else {
+                x.status = 'REJECTED';
+            }
+
+            // Show that report has been reviewed
+            y = true;
+            x.updated_at = get_block_timestamp();
+            self.reports.write(x.id, x.clone());
+            self.contributor_reports.write((submit_address, project_id), (x.clone(), y));
+            self.reviewed_reports.entry(project_id).push(x.id);
+
+            self
+                .emit(
+                    Event::ReportReviewed(
+                        ReportReviewed {
+                            report_id: x.id,
+                            project_id,
+                            validator,
+                            accepted: accept,
+                            timestamp: get_block_timestamp(),
+                        },
+                    ),
+                );
         }
 
         fn pay_validator(ref self: ContractState, project_id: u256) {
             self.accesscontrol.assert_only_role(ADMIN_ROLE);
             let mut project = self.view_project(project_id);
             let mut escrow = self.project_escrows.read(project.id);
-            let validator = self.project_validators.read(project.id);
+            let escrow_prev_amount = escrow.current_amount;
+            let validator = self.project_validators.read(project_id);
 
             assert(
                 project.is_completed
@@ -492,6 +569,9 @@ pub mod Fortichain {
             assert(escrow.id > 0 && escrow.is_active, 'No escrow available');
             assert(escrow.current_amount > 0, 'No escrow funds');
 
+            // Make sure the project has at least one reviewed report
+            assert(self.reviewed_reports.entry(project_id).len() != 0, 'No reports not reviewed');
+
             let validator_pay = (escrow.initial_deposit * 45_u256) / 100_u256;
 
             let success = self
@@ -501,11 +581,24 @@ pub mod Fortichain {
             assert(success, 'Tokens transfer failed');
 
             escrow.validator_paid = true;
-            escrow.current_amount -= validator_pay;
+            escrow.current_amount = escrow_prev_amount - validator_pay;
 
             self.project_escrows.write(project_id, escrow);
+            self.escrows.write(escrow.id, escrow);
             project.validator_paid = true;
             self.projects.write(project_id, project);
+
+            self
+                .emit(
+                    Event::ValidatorPaid(
+                        ValidatorPaid {
+                            project_id,
+                            validator: validator.validator_address,
+                            amount: validator_pay,
+                            timestamp: get_block_timestamp(),
+                        },
+                    ),
+                );
         }
 
         fn pay_researchers(ref self: ContractState, project_id: u256) {}
@@ -597,11 +690,11 @@ pub mod Fortichain {
 
         fn get_contributor_report(
             ref self: ContractState, project_id: u256, submitter_address: ContractAddress,
-        ) -> (ByteArray, bool) {
+        ) -> (Report, bool) {
             let project: Project = self.projects.read(project_id);
             assert(project.id > 0, PROJECT_NOT_FOUND);
 
-            let (x, y): (ByteArray, bool) = self
+            let (x, y): (Report, bool) = self
                 .contributor_reports
                 .read((submitter_address, project_id));
 
@@ -609,7 +702,6 @@ pub mod Fortichain {
         }
 
         fn get_report(self: @ContractState, report_id: u256) -> Report {
-            self.accesscontrol.assert_only_role(REPORT_READER);
             let report = self.reports.read(report_id);
             assert(report.id > 0, 'Report not found');
             report
@@ -619,15 +711,23 @@ pub mod Fortichain {
             ref self: ContractState, report_id: u256, project_id: u256, report_uri: ByteArray,
         ) -> bool {
             let project: Project = self.projects.read(project_id);
+            assert(project.deadline > get_block_timestamp(), 'Project has closed');
             assert(project.id > 0, PROJECT_NOT_FOUND);
             let caller = get_caller_address();
 
             let mut report = self.reports.read(report_id);
-            assert(report.contributor_address == caller, 'Only report owner can update');
-            report.report_data = report_uri.clone();
+            assert(report.researcher_address == caller, 'Only report owner can update');
+            report.report_uri = report_uri.clone();
             report.updated_at = get_block_timestamp();
 
             self.reports.write(report_id, report);
+
+            self
+                .emit(
+                    Event::ReportUpdated(
+                        ReportUpdated { project_id, report_id, timestamp: get_block_timestamp() },
+                    ),
+                );
 
             true
         }

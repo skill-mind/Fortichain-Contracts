@@ -1,5 +1,6 @@
 use core::felt252;
 use core::traits::Into;
+use fortichain_contracts::base::types::Report;
 use fortichain_contracts::fortichain::Fortichain;
 use fortichain_contracts::interfaces::IFortichain::{
     IFortichainDispatcher, IFortichainDispatcherTrait,
@@ -9,7 +10,7 @@ use snforge_std::{
     ContractClassTrait, DeclareResultTrait, EventSpyAssertionsTrait, declare, spy_events,
     start_cheat_block_timestamp, start_cheat_caller_address, stop_cheat_caller_address,
 };
-use starknet::{ContractAddress, contract_address_const, get_block_timestamp};
+use starknet::{ContractAddress, get_block_timestamp};
 
 
 // Accounts
@@ -52,7 +53,7 @@ fn contract() -> IFortichainDispatcher {
 
 // ERC20 deployment
 fn deploy_erc20() -> IMockUsdcDispatcher {
-    let owner: ContractAddress = contract_address_const::<'owner'>();
+    let owner: ContractAddress = 'owner'.try_into().unwrap();
 
     let contract_class = declare("MockUsdc").unwrap().contract_class();
     let (contract_address, _) = contract_class.deploy(@array![owner.into()]).unwrap();
@@ -319,7 +320,7 @@ fn test_fund_project_by_non_owner() {
     stop_cheat_caller_address(contract_address);
 
     start_cheat_caller_address(contract_address, OTHER());
-    let escrow_id = contract.fund_project(id, 200);
+    contract.fund_project(id, 200);
 }
 
 #[test]
@@ -350,7 +351,8 @@ fn test_fund_project_success() {
     let escrow = contract.view_escrow(escrow_id);
 
     assert(escrow.project_id == id, 'wrong ID');
-    assert(escrow.initial_deposit == (200 * 95) / 100, 'wrong amount');
+    assert(escrow.initial_deposit == 200, 'wrong amount');
+    assert(escrow.current_amount == (200 * 95) / 100, 'wrong amount');
     assert(contract_bal == 200, 'Contract did not get the funds');
     assert(user_bal == 300, 'user bal error');
     assert(escrow.is_active, 'active error');
@@ -470,6 +472,43 @@ fn test_successful_add_escrow_funds() {
     assert(contract_bal == 300, 'Contract did not get the funds');
     assert(user_bal == 200, 'user bal error');
     assert(escrow.is_active, 'active error');
+}
+
+#[test]
+fn test_successful_add_escrow_funds_event_emission() {
+    let contract = contract();
+    let mut spy = spy_events();
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
+
+    let erc20_address = contract.get_erc20_address();
+    let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
+    start_cheat_caller_address(erc20_address, OWNER());
+    // Make sure approve_user sets the allowance mapping for (owner, contract_address) to 10000.
+    token_dispatcher.mint(OWNER(), 500);
+    token_dispatcher.approve_user(contract_address, 500);
+
+    stop_cheat_caller_address(erc20_address);
+    start_cheat_caller_address(contract_address, OWNER());
+    let id = contract
+        .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
+
+    let escrow_id = contract.fund_project(id, 200);
+    let balance_after_first_fund: u256 = contract.view_escrow(escrow_id).initial_deposit;
+
+    contract.add_escrow_funding(escrow_id, 100);
+    stop_cheat_caller_address(contract_address);
+
+    // Assert event emitted
+    let expected_event = Fortichain::Event::EscrowFundsAdded(
+        Fortichain::EscrowFundsAdded {
+            escrow_id,
+            owner: OWNER(),
+            new_amount: balance_after_first_fund + ((100_u256 * 95_u256) / 100_u256),
+            timestamp: get_block_timestamp(),
+        },
+    );
+    spy.assert_emitted(@array![(contract.contract_address, expected_event)]);
 }
 
 #[test]
@@ -712,8 +751,6 @@ fn test_set_role_should_panic_when_called_by_non_owner() {
 #[test]
 fn test_register_validator_profile() {
     let contract = contract();
-    let contract_address = contract.contract_address;
-
     contract.register_validator_profile("1234", VALIDATOR_ADDRESS());
 
     assert(contract.get_total_validators() == 1, 'Create validator failed');
@@ -758,7 +795,6 @@ fn test_reject_validator_profile() {
 #[test]
 fn test_assign_validator() {
     let contract = contract();
-    let contract_address = contract.contract_address;
     let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
     start_cheat_caller_address(contract.contract_address, OWNER());
     let project_id = contract
@@ -806,15 +842,53 @@ fn test_successful_report_submit() {
 
     assert(submit_report > 0, 'Failed to submit report');
     // let report_id = contract.total_reports(id);
-    let (x, y): (ByteArray, bool) = contract.get_contributor_report(id, submitter_address);
-    assert(x == "0x1234", 'Failed to write report');
+    let (x, y): (Report, bool) = contract.get_contributor_report(id, submitter_address);
+    assert(x.report_uri == "0x1234", 'Failed to write report');
     assert(!y, 'Failed write initail false');
+}
+
+#[test]
+fn test_successful_report_submit_event_emission() {
+    // basic setup
+    let contract = contract();
+    let mut spy = spy_events();
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
+
+    let submitter_address: ContractAddress = 0x4.try_into().unwrap();
+    let erc20_address = contract.get_erc20_address();
+    let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
+    start_cheat_caller_address(erc20_address, OWNER());
+    // Make sure approve_user sets the allowance mapping for (owner, contract_address) to 10000.
+    token_dispatcher.mint(OWNER(), 500);
+    token_dispatcher.approve_user(contract_address, 500);
+
+    stop_cheat_caller_address(erc20_address);
+    start_cheat_caller_address(contract_address, OWNER());
+    let id = contract
+        .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
+
+    start_cheat_caller_address(contract_address, submitter_address);
+    let report_id = contract.submit_report(id, "0x1234");
+    stop_cheat_caller_address(contract_address);
+
+    assert(report_id > 0, 'Failed to submit report');
+    // let report_id = contract.total_reports(id);
+    let (x, y): (Report, bool) = contract.get_contributor_report(id, submitter_address);
+    assert(x.report_uri == "0x1234", 'Failed to write report');
+    assert(!y, 'Failed write initail false');
+
+    // Assert event emitted
+    let expected_event = Fortichain::Event::ReportSubmitted(
+        Fortichain::ReportSubmitted { report_id, project_id: id, timestamp: get_block_timestamp() },
+    );
+    spy.assert_emitted(@array![(contract.contract_address, expected_event)]);
 }
 
 
 #[test]
 #[should_panic(expected: ('Project not found',))]
-fn test_report_approve_should_panic_if_project_not_found() {
+fn test_report_review_should_panic_if_project_not_found() {
     // basic setup
     let contract = contract();
     let contract_address = contract.contract_address;
@@ -838,13 +912,13 @@ fn test_report_approve_should_panic_if_project_not_found() {
 
     assert(submit_report > 0, 'Failed to submit report');
     // let report_id = contract.total_reports(id);
-    let (x, y): (ByteArray, bool) = contract.get_contributor_report(id, submitter_address);
-    assert(x == "0x1234", 'Failed to write report');
+    let (x, y): (Report, bool) = contract.get_contributor_report(id, submitter_address);
+    assert(x.report_uri == "0x1234", 'Failed to write report');
     assert(!y, 'Failed write initail false');
 }
 
 #[test]
-fn test_approve_report_successfully() {
+fn test_review_report_successfully() {
     // basic setup
     let contract = contract();
     let contract_address = contract.contract_address;
@@ -859,38 +933,174 @@ fn test_approve_report_successfully() {
     token_dispatcher.approve_user(contract_address, 500);
 
     stop_cheat_caller_address(erc20_address);
+
     start_cheat_caller_address(contract_address, OWNER());
+    contract.set_role(OWNER(), ADMIN_ROLE, true);
     let id = contract
         .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
 
-    start_cheat_caller_address(contract.contract_address, OWNER());
-    contract.set_role(VALIDATOR_ADDRESS(), VALIDATOR_ROLE, true);
-    stop_cheat_caller_address(contract.contract_address);
+    contract.register_validator_profile("1234", VALIDATOR_ADDRESS());
 
-    let is_validator = contract.is_validator(VALIDATOR_ROLE, VALIDATOR_ADDRESS());
-    assert(is_validator, 'wrong is_validator value');
+    contract.approve_validator_profile(VALIDATOR_ADDRESS());
+
+    contract.assign_validator(id, VALIDATOR_ADDRESS());
 
     start_cheat_caller_address(contract_address, submitter_address);
     contract.submit_report(id, "0x1234");
     stop_cheat_caller_address(contract_address);
 
     start_cheat_caller_address(contract_address, VALIDATOR_ADDRESS());
-    contract.approve_report(id, submitter_address);
+    contract.review_report(id, submitter_address, true);
     stop_cheat_caller_address(contract_address);
 
-    let (x, y): (ByteArray, bool) = contract.get_contributor_report(id, submitter_address);
-    assert(x == "0x1234", 'Failed to get correct report');
-    assert(y, 'Failed write approve report');
+    let (x, y): (Report, bool) = contract.get_contributor_report(id, submitter_address);
+    assert(x.report_uri == "0x1234", 'Failed to get correct report');
+    assert(y, 'Failed write review report');
+}
+
+#[test]
+fn test_review_report_successfully_event_emission() {
+    // basic setup
+    let contract = contract();
+    let mut spy = spy_events();
+
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
+
+    let submitter_address: ContractAddress = 0x4.try_into().unwrap();
+    let erc20_address = contract.get_erc20_address();
+    let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
+    start_cheat_caller_address(erc20_address, OWNER());
+    // Make sure approve_user sets the allowance mapping for (owner, contract_address) to 10000.
+    token_dispatcher.mint(OWNER(), 500);
+    token_dispatcher.approve_user(contract_address, 500);
+
+    stop_cheat_caller_address(erc20_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    contract.set_role(OWNER(), ADMIN_ROLE, true);
+    let project_id = contract
+        .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
+
+    contract.register_validator_profile("1234", VALIDATOR_ADDRESS());
+
+    contract.approve_validator_profile(VALIDATOR_ADDRESS());
+
+    contract.assign_validator(project_id, VALIDATOR_ADDRESS());
+
+    start_cheat_caller_address(contract_address, submitter_address);
+    let report_id = contract.submit_report(project_id, "0x1234");
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, VALIDATOR_ADDRESS());
+    contract.review_report(project_id, submitter_address, true);
+    stop_cheat_caller_address(contract_address);
+
+    let (x, y): (Report, bool) = contract.get_contributor_report(project_id, submitter_address);
+    assert(x.report_uri == "0x1234", 'Failed to get correct report');
+    assert(y, 'Failed write review report');
+
+    // Assert event emitted
+    let expected_event = Fortichain::Event::ReportReviewed(
+        Fortichain::ReportReviewed {
+            project_id,
+            report_id,
+            validator: VALIDATOR_ADDRESS(),
+            accepted: true,
+            timestamp: get_block_timestamp(),
+        },
+    );
+    spy.assert_emitted(@array![(contract.contract_address, expected_event)]);
+}
+
+#[test]
+fn test_review_report_approve_successfully() {
+    // basic setup
+    let contract = contract();
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
+
+    let submitter_address: ContractAddress = 0x4.try_into().unwrap();
+    let erc20_address = contract.get_erc20_address();
+    let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
+    start_cheat_caller_address(erc20_address, OWNER());
+    // Make sure approve_user sets the allowance mapping for (owner, contract_address) to 10000.
+    token_dispatcher.mint(OWNER(), 500);
+    token_dispatcher.approve_user(contract_address, 500);
+
+    stop_cheat_caller_address(erc20_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    let id = contract
+        .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
+
+    contract.set_role(OWNER(), ADMIN_ROLE, true);
+
+    contract.register_validator_profile("1234", VALIDATOR_ADDRESS());
+
+    contract.approve_validator_profile(VALIDATOR_ADDRESS());
+
+    contract.assign_validator(id, VALIDATOR_ADDRESS());
+
+    start_cheat_caller_address(contract_address, submitter_address);
+    contract.submit_report(id, "0x1234");
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, VALIDATOR_ADDRESS());
+    contract.review_report(id, submitter_address, true);
+    stop_cheat_caller_address(contract_address);
 
     let array_of_contributors = contract.get_list_of_approved_contributors(id);
     assert(array_of_contributors.len() == 1, 'wrong list of contributors');
     assert(*array_of_contributors.at(0) == submitter_address, 'wrong list of contributors');
 }
 
+#[test]
+fn test_review_report_reject_successfully() {
+    // basic setup
+    let contract = contract();
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
+
+    let submitter_address: ContractAddress = 0x4.try_into().unwrap();
+    let erc20_address = contract.get_erc20_address();
+    let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
+    start_cheat_caller_address(erc20_address, OWNER());
+    // Make sure approve_user sets the allowance mapping for (owner, contract_address) to 10000.
+    token_dispatcher.mint(OWNER(), 500);
+    token_dispatcher.approve_user(contract_address, 500);
+
+    stop_cheat_caller_address(erc20_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    let id = contract
+        .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
+
+    contract.set_role(OWNER(), ADMIN_ROLE, true);
+
+    contract.register_validator_profile("1234", VALIDATOR_ADDRESS());
+
+    contract.approve_validator_profile(VALIDATOR_ADDRESS());
+
+    contract.assign_validator(id, VALIDATOR_ADDRESS());
+
+    start_cheat_caller_address(contract_address, submitter_address);
+    let report_id = contract.submit_report(id, "0x1234");
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, VALIDATOR_ADDRESS());
+    contract.review_report(id, submitter_address, false);
+    stop_cheat_caller_address(contract_address);
+
+    let array_of_contributors = contract.get_list_of_approved_contributors(id);
+    assert(array_of_contributors.len() == 0, 'wrong list of contributors');
+    assert(contract.get_report(report_id).status == 'REJECTED', 'Report rejection failed');
+}
+
 
 #[test]
 #[should_panic]
-fn test_approve_report_should_panic_if_non_validator_tries_to_approve() {
+fn test_review_report_should_panic_if_non_validator_tries_to_approve() {
     // basic setup
     let contract = contract();
     let contract_address = contract.contract_address;
@@ -922,11 +1132,11 @@ fn test_approve_report_should_panic_if_non_validator_tries_to_approve() {
     stop_cheat_caller_address(contract_address);
 
     start_cheat_caller_address(contract_address, random_address);
-    contract.approve_report(id, submitter_address);
+    contract.review_report(id, submitter_address, true);
     stop_cheat_caller_address(contract_address);
 
-    let (x, y): (ByteArray, bool) = contract.get_contributor_report(id, submitter_address);
-    assert(x == "0x1234", 'Failed to get correct report');
+    let (x, y): (Report, bool) = contract.get_contributor_report(id, submitter_address);
+    assert(x.report_uri == "0x1234", 'Failed to get correct report');
     assert(y, 'Failed write approve report');
 
     let array_of_contributors = contract.get_list_of_approved_contributors(id);
@@ -937,7 +1147,7 @@ fn test_approve_report_should_panic_if_non_validator_tries_to_approve() {
 
 #[test]
 #[should_panic(expected: ('Project not found',))]
-fn test_approve_report_should_panic_if_project_not_found() {
+fn test_review_report_should_panic_if_project_not_found() {
     // basic setup
     let contract = contract();
     let contract_address = contract.contract_address;
@@ -945,14 +1155,7 @@ fn test_approve_report_should_panic_if_project_not_found() {
 
     let submitter_address: ContractAddress = 0x4.try_into().unwrap();
     let random_address: ContractAddress = 0x664.try_into().unwrap();
-    let erc20_address = contract.get_erc20_address();
-    let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
-    start_cheat_caller_address(erc20_address, OWNER());
-    // Make sure approve_user sets the allowance mapping for (owner, contract_address) to 10000.
-    token_dispatcher.mint(OWNER(), 500);
-    token_dispatcher.approve_user(contract_address, 500);
 
-    stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract_address, OWNER());
     let id = 4_u256;
     start_cheat_caller_address(contract.contract_address, OWNER());
@@ -967,11 +1170,11 @@ fn test_approve_report_should_panic_if_project_not_found() {
     stop_cheat_caller_address(contract_address);
 
     start_cheat_caller_address(contract_address, random_address);
-    contract.approve_report(id, submitter_address);
+    contract.review_report(id, submitter_address, true);
     stop_cheat_caller_address(contract_address);
 
-    let (x, y): (ByteArray, bool) = contract.get_contributor_report(id, submitter_address);
-    assert(x == "0x1234", 'Failed to get correct report');
+    let (x, y): (Report, bool) = contract.get_contributor_report(id, submitter_address);
+    assert(x.report_uri == "0x1234", 'Failed to get correct report');
     assert(y, 'Failed write approve report');
 
     let array_of_contributors = contract.get_list_of_approved_contributors(id);
@@ -979,86 +1182,128 @@ fn test_approve_report_should_panic_if_project_not_found() {
     assert(*array_of_contributors.at(0) == submitter_address, 'wrong list of contributors');
 }
 
-// todo
-// #[test]
-// fn test_successful_pay_of_an_approved_validator() {
-//     let contract = contract();
-//     let contract_address = contract.contract_address;
-//     let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
-//
-//     let submitter_address: ContractAddress = 0x4.try_into().unwrap();
-//     let erc20_address = contract.get_erc20_address();
-//     let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
-//     start_cheat_caller_address(erc20_address, project_owner);
-//     // Make sure approve_user sets the allowance mapping for (owner, contract_address) to 10000.
-//     token_dispatcher.mint(project_owner, 500);
-//     token_dispatcher.approve_user(contract_address, 500);
-
-//     stop_cheat_caller_address(erc20_address);
-//     start_cheat_caller_address(contract_address, project_owner);
-//     let id = contract
-//         .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
-
-//     let _escrow_id = contract.fund_project(id, 200);
-
-//     start_cheat_caller_address(contract.contract_address, OWNER());
-//     contract.set_role(VALIDATOR_ADDRESS(), VALIDATOR_ROLE, true);
-//     contract.set_role(project_owner, VALIDATOR_ROLE, true);
-//     stop_cheat_caller_address(contract.contract_address);
-
-//     let is_validator = contract.is_validator(VALIDATOR_ROLE, VALIDATOR_ADDRESS());
-//     assert(is_validator, 'wrong is_validator value');
-
-//     start_cheat_caller_address(contract_address, submitter_address);
-//     contract.submit_report(id, "0x1234");
-//     stop_cheat_caller_address(contract_address);
-
-//     start_cheat_caller_address(contract_address, VALIDATOR_ADDRESS());
-//     contract.approve_report(id, submitter_address);
-//     stop_cheat_caller_address(contract_address);
-
-//     let (x, y): (ByteArray, bool) = contract.get_contributor_report(id, submitter_address);
-//     assert(x == "0x1234", 'Failed to get correct report');
-//     assert(y, 'Failed write approve report');
-//     start_cheat_caller_address(contract_address, project_owner);
-//     contract.pay_approved_reports(id);
-//     stop_cheat_caller_address(contract.contract_address);
-
-//     let payment_status: bool = contract.get_contributor_paid_status(id, submitter_address);
-//     assert(payment_status, 'Failed to pay the contributor');
-// }
-
 #[test]
-fn test_successful_create_report() {
+fn test_pay_validator_successfully() {
+    // basic setup
     let contract = contract();
     let contract_address = contract.contract_address;
     let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
 
     let submitter_address: ContractAddress = 0x4.try_into().unwrap();
+
     let erc20_address = contract.get_erc20_address();
     let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
+
     start_cheat_caller_address(erc20_address, OWNER());
     // Make sure approve_user sets the allowance mapping for (owner, contract_address) to 10000.
     token_dispatcher.mint(OWNER(), 500);
     token_dispatcher.approve_user(contract_address, 500);
 
     stop_cheat_caller_address(erc20_address);
-    start_cheat_caller_address(contract_address, OWNER());
-    let id = contract
-        .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
-    start_cheat_caller_address(contract_address, submitter_address);
-    let report_id = contract.submit_report(id, "report.com");
-    start_cheat_caller_address(contract.contract_address, OWNER());
-    contract.set_role(REPORT_ADDRESS(), REPORT_READER, true);
-    stop_cheat_caller_address(contract.contract_address);
 
-    start_cheat_caller_address(contract.contract_address, REPORT_ADDRESS());
-    let report = contract.get_report(report_id);
-    assert(report.id == report_id, 'wrong report id');
-    assert(report.project_id == id, 'wrong project id');
-    assert(report.contributor_address == submitter_address, 'wrong submitter');
-    assert(report.report_data == "report.com", 'wrong report url');
+    start_cheat_caller_address(contract_address, OWNER());
+    contract.set_role(OWNER(), ADMIN_ROLE, true);
+    let project_id = contract
+        .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
+
+    let escrow_id = contract.fund_project(project_id, 200);
+    stop_cheat_caller_address(contract_address);
+
+    contract.register_validator_profile("1234", VALIDATOR_ADDRESS());
+
+    start_cheat_caller_address(contract_address, OWNER());
+    contract.approve_validator_profile(VALIDATOR_ADDRESS());
+
+    contract.assign_validator(project_id, VALIDATOR_ADDRESS());
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, submitter_address);
+    contract.submit_report(project_id, "0x1234");
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, VALIDATOR_ADDRESS());
+    contract.review_report(project_id, submitter_address, true);
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    start_cheat_block_timestamp(contract_address, get_block_timestamp() + 1100);
+    contract.close_project(project_id);
+    let escrow_before = contract.view_escrow(escrow_id);
+    contract.pay_validator(project_id);
+    let escrow_after = contract.view_escrow(escrow_id);
+    assert(token_dispatcher.get_balance(VALIDATOR_ADDRESS()) == 90, 'Validator not paid');
+    assert_eq!(
+        escrow_after.current_amount,
+        escrow_before.current_amount - ((escrow_before.initial_deposit * 45_u256) / 100_u256),
+        "Escrow current amount invalid",
+    );
+    assert(contract.view_escrow(escrow_id).validator_paid, 'Validator not paid');
+    assert(contract.view_project(project_id).validator_paid, 'Validator not paid');
 }
+
+
+#[test]
+fn test_pay_validator_event_emission() {
+    // basic setup
+    let contract = contract();
+    let mut spy = spy_events();
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
+
+    let submitter_address: ContractAddress = 0x4.try_into().unwrap();
+
+    let erc20_address = contract.get_erc20_address();
+    let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
+
+    start_cheat_caller_address(erc20_address, OWNER());
+    // Make sure approve_user sets the allowance mapping for (owner, contract_address) to 10000.
+    token_dispatcher.mint(OWNER(), 500);
+    token_dispatcher.approve_user(contract_address, 500);
+
+    stop_cheat_caller_address(erc20_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    contract.set_role(OWNER(), ADMIN_ROLE, true);
+    let project_id = contract
+        .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
+
+    let escrow_id = contract.fund_project(project_id, 200);
+    stop_cheat_caller_address(contract_address);
+
+    contract.register_validator_profile("1234", VALIDATOR_ADDRESS());
+
+    start_cheat_caller_address(contract_address, OWNER());
+    contract.approve_validator_profile(VALIDATOR_ADDRESS());
+
+    contract.assign_validator(project_id, VALIDATOR_ADDRESS());
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, submitter_address);
+    contract.submit_report(project_id, "0x1234");
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, VALIDATOR_ADDRESS());
+    contract.review_report(project_id, submitter_address, true);
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    start_cheat_block_timestamp(contract_address, get_block_timestamp() + 1100);
+    contract.close_project(project_id);
+    let escrow_before = contract.view_escrow(escrow_id);
+    contract.pay_validator(project_id);
+
+    // Assert event emitted
+    let expected_event = Fortichain::Event::ValidatorPaid(
+        Fortichain::ValidatorPaid {
+            project_id,
+            validator: VALIDATOR_ADDRESS(),
+            amount: (escrow_before.initial_deposit * 45_u256) / 100_u256,
+            timestamp: get_block_timestamp() + 1100,
+        },
+    );
+    spy.assert_emitted(@array![(contract.contract_address, expected_event)]);
+}
+
 
 #[test]
 fn test_successful_update_report() {
@@ -1079,8 +1324,8 @@ fn test_successful_update_report() {
     let id = contract
         .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
     start_cheat_caller_address(contract_address, submitter_address);
-    let report_id = contract.submit_report(id, "report.com");
-    contract.update_report(report_id, id, "report.com/updated");
+    let report_id = contract.submit_report(id, "1234");
+    contract.update_report(report_id, id, "123467");
     start_cheat_caller_address(contract.contract_address, OWNER());
     contract.set_role(REPORT_ADDRESS(), REPORT_READER, true);
     stop_cheat_caller_address(contract.contract_address);
@@ -1089,17 +1334,84 @@ fn test_successful_update_report() {
     let report = contract.get_report(report_id);
     assert(report.id == report_id, 'wrong report id');
     assert(report.project_id == id, 'wrong project id');
-    assert(report.contributor_address == submitter_address, 'wrong submitter');
-    assert(report.report_data == "report.com/updated", 'wrong report url');
+    assert(report.researcher_address == submitter_address, 'wrong submitter');
+    assert(report.report_uri == "123467", 'wrong report url');
 }
 
+#[test]
+fn test_successful_update_report_event_emission() {
+    let contract = contract();
+    let mut spy = spy_events();
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
+
+    let submitter_address: ContractAddress = 0x4.try_into().unwrap();
+    let erc20_address = contract.get_erc20_address();
+    let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
+    start_cheat_caller_address(erc20_address, OWNER());
+    // Make sure approve_user sets the allowance mapping for (owner, contract_address) to 10000.
+    token_dispatcher.mint(OWNER(), 500);
+    token_dispatcher.approve_user(contract_address, 500);
+
+    stop_cheat_caller_address(erc20_address);
+    start_cheat_caller_address(contract_address, OWNER());
+    let project_id = contract
+        .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
+    start_cheat_caller_address(contract_address, submitter_address);
+    let report_id = contract.submit_report(project_id, "1234");
+    contract.update_report(report_id, project_id, "123467");
+    start_cheat_caller_address(contract.contract_address, OWNER());
+    contract.set_role(REPORT_ADDRESS(), REPORT_READER, true);
+    stop_cheat_caller_address(contract.contract_address);
+
+    start_cheat_caller_address(contract.contract_address, REPORT_ADDRESS());
+
+    // Assert event emitted
+    let expected_event = Fortichain::Event::ReportUpdated(
+        Fortichain::ReportUpdated { project_id, report_id, timestamp: get_block_timestamp() },
+    );
+    spy.assert_emitted(@array![(contract.contract_address, expected_event)]);
+}
+
+
+#[test]
+fn test_pay_validator() {
+    let contract = contract();
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
+
+    let submitter_address: ContractAddress = 0x4.try_into().unwrap();
+    let erc20_address = contract.get_erc20_address();
+    let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
+    start_cheat_caller_address(erc20_address, OWNER());
+    // Make sure approve_user sets the allowance mapping for (owner, contract_address) to 10000.
+    token_dispatcher.mint(OWNER(), 500);
+    token_dispatcher.approve_user(contract_address, 500);
+
+    stop_cheat_caller_address(erc20_address);
+    start_cheat_caller_address(contract_address, OWNER());
+    let id = contract
+        .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
+    start_cheat_caller_address(contract_address, submitter_address);
+    let report_id = contract.submit_report(id, "1234");
+    start_cheat_caller_address(contract.contract_address, OWNER());
+    contract.set_role(REPORT_ADDRESS(), REPORT_READER, true);
+    stop_cheat_caller_address(contract.contract_address);
+
+    start_cheat_caller_address(contract.contract_address, REPORT_ADDRESS());
+    let report = contract.get_report(report_id);
+    assert(report.id == report_id, 'wrong report id');
+    assert(report.project_id == id, 'wrong project id');
+    assert(report.researcher_address == submitter_address, 'wrong submitter');
+    assert(report.report_uri == "1234", 'wrong report uri');
+}
 
 #[test]
 #[available_gas(2000000)]
 #[should_panic(expected: ('Unauthorized: Not validator',))]
 fn test_withdraw_bounty_unauthorized() {
     let contract = contract();
-    let unauthorized = contract_address_const::<3>();
+    let unauthorized = 3.try_into().unwrap();
 
     // Try to withdraw without role or approved report
     start_cheat_caller_address(contract.contract_address, unauthorized);
@@ -1133,7 +1445,7 @@ fn test_withdraw_bounty_invalid_recipient() {
     let erc20 = deploy_erc20();
     let validator = VALIDATOR_ADDRESS();
     let owner = OWNER();
-    let other_address = contract_address_const::<3>();
+    let other_address = 3.try_into().unwrap();
 
     // Set up validator role and balance
     start_cheat_caller_address(contract.contract_address, owner);
