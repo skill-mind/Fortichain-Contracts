@@ -29,7 +29,6 @@ pub trait IFortichain<TContractState> {
 
     // --- Payments ---
     fn pay_validator(ref self: TContractState, project_id: u256);
-    fn pay_researchers(ref self: TContractState, project_id: u256);
     fn process_payment(
         ref self: TContractState, payer: ContractAddress, amount: u256, recipient: ContractAddress,
     ) -> bool;
@@ -41,7 +40,7 @@ pub trait IFortichain<TContractState> {
     fn review_report(
         ref self: TContractState, project_id: u256, submit_address: ContractAddress, accept: bool,
     );
-    fn pay_approved_reports(ref self: TContractState, project_id: u256);
+    fn pay_approved_researchers_reports(ref self: TContractState, project_id: u256);
 
     fn get_contributor_report(
         ref self: TContractState, project_id: u256, submitter_address: ContractAddress,

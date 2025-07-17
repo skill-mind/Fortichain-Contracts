@@ -83,6 +83,7 @@ pub mod Fortichain {
         ReportUpdated: ReportUpdated,
         ReportReviewed: ReportReviewed,
         ValidatorPaid: ValidatorPaid,
+        ResearchersPaid: ResearchersPaid,
         BountyWithdrawn: BountyWithdrawn,
         #[flat]
         OwnableEvent: OwnableComponent::Event,
@@ -161,6 +162,14 @@ pub mod Fortichain {
 
     #[derive(Drop, starknet::Event)]
     pub struct ValidatorPaid {
+        pub project_id: u256,
+        pub validator: ContractAddress,
+        pub amount: u256,
+        pub timestamp: u64,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct ResearchersPaid {
         pub project_id: u256,
         pub validator: ContractAddress,
         pub amount: u256,
@@ -601,28 +610,23 @@ pub mod Fortichain {
                 );
         }
 
-        fn pay_researchers(ref self: ContractState, project_id: u256) {}
-
-        fn pay_approved_reports(ref self: ContractState, project_id: u256) {
+        fn pay_approved_researchers_reports(ref self: ContractState, project_id: u256) {
             self.accesscontrol.assert_only_role(ADMIN_ROLE);
 
             let mut project: Project = self.view_project(project_id);
-            assert(project.is_active, 'Project not active');
+            assert(
+                !project.is_active && get_block_timestamp() > project.deadline,
+                'Project not active',
+            );
             let mut escrow = self.project_escrows.read(project_id);
             assert(escrow.id > 0, 'Invalid Escrow');
             assert(!escrow.researchers_paid, 'Researchers have been paid');
             assert(escrow.current_amount > 0, 'Zero escrow balance');
 
-            // get the owner of the report approve status
-            // let (_, mut y): (ByteArray, bool) = self
-            //     .contributor_reports
-            //     .read((submitter_Address, project_id));
-
-            // assert(y, 'Report not approved');
-
             let list_of_approved_contributors: Array<ContractAddress> = self
                 .get_list_of_approved_contributors(project_id);
 
+            let researchers_pay = (escrow.initial_deposit * 50_u256) / 100_u256;
             let len = list_of_approved_contributors.len();
             let mut i: u32 = 0;
 
@@ -630,11 +634,7 @@ pub mod Fortichain {
                 let address: ContractAddress = *list_of_approved_contributors.at(i);
                 self.paid_contributors.write((project_id, address), true);
                 let success = self
-                    .process_payment(
-                        get_contract_address(),
-                        ((escrow.initial_deposit * 50_u256) / 100_u256) / len.into(),
-                        address,
-                    );
+                    .process_payment(get_contract_address(), researchers_pay / len.into(), address);
                 assert(success, 'Tokens transfer failed');
                 i += 1;
             }
@@ -645,7 +645,19 @@ pub mod Fortichain {
 
             escrow.researchers_paid = true;
             escrow.updated_at = get_block_timestamp();
-            self.escrows.write(escrow.id, escrow)
+            self.escrows.write(escrow.id, escrow);
+
+            self
+                .emit(
+                    Event::ResearchersPaid(
+                        ResearchersPaid {
+                            project_id,
+                            validator: self.project_validators.read(project_id).validator_address,
+                            amount: researchers_pay,
+                            timestamp: get_block_timestamp(),
+                        },
+                    ),
+                );
         }
 
 
@@ -670,7 +682,7 @@ pub mod Fortichain {
             let mut i: u64 = 0;
             let mut approved_contributors = ArrayTrait::new();
 
-            while i < len {
+            while i != len {
                 let address = report_vec.at(i).read();
                 approved_contributors.append(address);
                 i += 1;
@@ -940,7 +952,7 @@ pub mod Fortichain {
             let project_count = self.project_count.read();
             let mut i: u256 = 1;
             let mut result: bool = false;
-            while i <= project_count {
+            while i != project_count + 1 {
                 let (_link, approved) = self.contributor_reports.read((user, i));
                 if approved {
                     result = true;
