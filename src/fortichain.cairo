@@ -744,59 +744,6 @@ pub mod Fortichain {
             true
         }
 
-
-        fn withdraw_bounty(
-            ref self: ContractState, amount: u256, recipient: ContractAddress,
-        ) -> (bool, u256) {
-            // Check if contract is paused
-            assert(!self.contract_paused.read(), 'Contract is paused');
-
-            let caller = get_caller_address();
-            // Verify recipient is the caller (prevents unauthorized transfers)
-            assert(caller == recipient, 'Invalid recipient address');
-
-            // Check if caller is a validator or has an approved report
-            let is_validator = self.accesscontrol.has_role(VALIDATOR_ROLE, caller);
-            let has_approved_report = self.has_approved_report(caller);
-            assert(is_validator || has_approved_report, 'Unauthorized: Not validator');
-
-            // Validate amount
-            assert(amount > 0, 'Invalid withdrawal amount');
-            let available_balance = self.user_bounty_balances.read(caller);
-            assert(available_balance >= amount, 'Insufficient bounty balance');
-
-            // Prevent reentrancy by updating balance first
-            let new_balance = available_balance - amount;
-            self.user_bounty_balances.write(caller, new_balance);
-
-            // Process payment
-            let success = self.process_payment(get_contract_address(), amount, recipient);
-            assert(success, 'Transfer failed');
-
-            // Emit event
-            let timestamp = get_block_timestamp();
-            self
-                .emit(
-                    Event::BountyWithdrawn(
-                        BountyWithdrawn {
-                            user: caller,
-                            amount: amount,
-                            recipient: recipient,
-                            timestamp: timestamp,
-                        },
-                    ),
-                );
-
-            (true, new_balance)
-        }
-
-        fn add_user_bounty_balance(ref self: ContractState, user: ContractAddress, amount: u256) {
-            self.ownable.assert_only_owner();
-            assert(amount > 0, 'Invalid amount');
-            let current_balance = self.user_bounty_balances.read(user);
-            self.user_bounty_balances.write(user, current_balance + amount);
-        }
-
         fn register_validator_profile(
             ref self: ContractState,
             validator_data_uri: ByteArray,

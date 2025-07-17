@@ -64,11 +64,6 @@ pub trait IFortichain<TContractState> {
     fn update_report(
         ref self: TContractState, report_id: u256, project_id: u256, report_uri: ByteArray,
     ) -> bool;
-    fn withdraw_bounty(
-        ref self: TContractState, amount: u256, recipient: ContractAddress,
-    ) -> (bool, u256);
-    fn add_user_bounty_balance(ref self: TContractState, user: ContractAddress, amount: u256);
-
 
     fn register_validator_profile(
         ref self: TContractState, validator_data_uri: ByteArray, validator_address: ContractAddress,
