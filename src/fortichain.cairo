@@ -9,13 +9,14 @@ pub mod Fortichain {
     use openzeppelin::introspection::src5::SRC5Component;
     use starknet::storage::{
         Map, MutableVecTrait, StorageMapReadAccess, StorageMapWriteAccess, StoragePathEntry,
-        StoragePointerReadAccess, StoragePointerWriteAccess, Vec,
+        StoragePointerReadAccess, StoragePointerWriteAccess, Vec, VecTrait,
     };
     use starknet::{ContractAddress, get_block_timestamp, get_caller_address, get_contract_address};
     use crate::base::errors::Errors::{
-        CAN_ONLY_CLOSE_AFTER_DEADLINE, ONLY_OWNER_CAN_CLOSE, ONLY_OWNER_CAN_EDIT, PROJECT_NOT_FOUND,
+        CAN_ONLY_CLOSE_AFTER_DEADLINE, NOT_AUTHORIZED, ONLY_OWNER_CAN_CLOSE, ONLY_OWNER_CAN_EDIT,
+        ONLY_VALIDATOR, PROJECT_NOT_FOUND, REQUEST_NOT_FOUND,
     };
-    use crate::base::types::{Escrow, Project, Report, Validator};
+    use crate::base::types::{Escrow, Project, Report, ReportDetailsRequest, Validator};
     use super::IMockUsdcDispatcherTrait;
 
     component!(path: OwnableComponent, storage: ownable, event: OwnableEvent);
@@ -64,6 +65,9 @@ pub mod Fortichain {
         reports: Map<u256, Report>,
         report_count: u256,
         reviewed_reports: Map<u256, Vec<u256>>,
+        detail_requests_by_id: Map<u256, ReportDetailsRequest>,
+        report_request_ids: Map<u256, Vec<u256>>, // report_id -> Vec<request_ids>
+        more_details_request_count: u256,
         #[substorage(v0)]
         ownable: OwnableComponent::Storage,
         #[substorage(v0)]
@@ -813,6 +817,133 @@ pub mod Fortichain {
 
         fn get_assigned_project_validator(self: @ContractState, project_id: u256) -> Validator {
             self.project_validators.read(project_id)
+        }
+
+        fn provide_more_details(ref self: ContractState, report_id: u256, details: ByteArray) {
+            let caller = get_caller_address();
+            let id = self.more_details_request_count.read() + 1;
+
+            let new_request = ReportDetailsRequest {
+                id,
+                report_id,
+                requester: caller,
+                details,
+                requested_at: get_block_timestamp(),
+                is_completed: false,
+            };
+
+            self.more_details_request_count.write(id);
+
+            // Store request data
+            self.detail_requests_by_id.write(id, new_request);
+
+            // Store request ID
+            self.report_request_ids.entry(report_id).push(id);
+        }
+
+        fn get_more_details_requests(
+            self: @ContractState, report_id: u256,
+        ) -> Span<ReportDetailsRequest> {
+            let request_ids_vec = self.report_request_ids.entry(report_id);
+            let len = request_ids_vec.len();
+            let mut requests = ArrayTrait::new();
+
+            let mut i: u64 = 0;
+            while i < len {
+                let request_id = request_ids_vec.at(i).read();
+                let request = self.detail_requests_by_id.read(request_id);
+                requests.append(request);
+                i += 1;
+            }
+
+            requests.span()
+        }
+
+        fn get_request_by_id(self: @ContractState, request_id: u256) -> ReportDetailsRequest {
+            let request = self.detail_requests_by_id.read(request_id);
+            assert(request.id == request_id, REQUEST_NOT_FOUND);
+            request
+        }
+
+        fn get_more_details_request_count(self: @ContractState) -> u256 {
+            self.more_details_request_count.read()
+        }
+
+        fn mark_request_as_completed(ref self: ContractState, request_id: u256) {
+            let mut request = self.detail_requests_by_id.read(request_id);
+            assert(request.id == request_id, REQUEST_NOT_FOUND);
+
+            let caller = get_caller_address();
+            assert(
+                caller == request.requester || self.accesscontrol.has_role(ADMIN_ROLE, caller),
+                NOT_AUTHORIZED,
+            );
+
+            request.is_completed = true;
+            self.detail_requests_by_id.write(request_id, request);
+        }
+
+        fn get_request_ids_for_report(self: @ContractState, report_id: u256) -> Span<u256> {
+            let request_ids_vec = self.report_request_ids.entry(report_id);
+            let len = request_ids_vec.len();
+            let mut ids = ArrayTrait::new();
+
+            let mut i: u64 = 0;
+            while i < len {
+                let id = request_ids_vec.at(i).read();
+                ids.append(id);
+                i += 1;
+            }
+
+            ids.span()
+        }
+
+        fn get_requests_by_requester(self: @ContractState) -> Span<ReportDetailsRequest> {
+            let total_count = self.more_details_request_count.read();
+            let mut requests = ArrayTrait::new();
+            let requester = get_caller_address();
+
+            let mut id: u256 = 1;
+            while id <= total_count {
+                let request = self.detail_requests_by_id.read(id);
+                if request.requester == requester && request.id == id {
+                    requests.append(request);
+                }
+                id += 1;
+            }
+
+            requests.span()
+        }
+
+        fn get_pending_requests_for_report(
+            self: @ContractState, report_id: u256,
+        ) -> Span<ReportDetailsRequest> {
+            let request_ids_vec = self.report_request_ids.entry(report_id);
+            let len = request_ids_vec.len();
+            let mut pending_requests = ArrayTrait::new();
+
+            let mut i: u64 = 0;
+            while i < len {
+                let request_id = request_ids_vec.at(i).read();
+                let request = self.detail_requests_by_id.read(request_id);
+                if !request.is_completed {
+                    pending_requests.append(request);
+                }
+                i += 1;
+            }
+
+            pending_requests.span()
+        }
+
+        fn reject_report(ref self: ContractState, report_id: u256) {
+            let caller = get_caller_address();
+
+            assert(self.is_validator(VALIDATOR_ROLE, caller), ONLY_VALIDATOR);
+
+            let mut report = self.get_report(report_id);
+            report.status = 'REJECTED';
+
+            self.reports.entry(report_id).write(report);
         }
     }
     #[generate_trait]

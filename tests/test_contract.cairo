@@ -1757,3 +1757,405 @@ fn pay_approved_researchers_reports_event_emission() {
     );
     spy.assert_emitted(@array![(contract.contract_address, expected_event)]);
 }
+
+#[test]
+fn test_provide_more_details_successfully() {
+    let contract = contract();
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
+
+    let submitter_address: ContractAddress = 0x4.try_into().unwrap();
+    let requester_address: ContractAddress = 0x5.try_into().unwrap();
+
+    let erc20_address = contract.get_erc20_address();
+    let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
+    start_cheat_caller_address(erc20_address, OWNER());
+    token_dispatcher.mint(OWNER(), 500);
+    token_dispatcher.approve_user(contract_address, 500);
+    stop_cheat_caller_address(erc20_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    let project_id = contract
+        .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, submitter_address);
+    let report_id = contract.submit_report(project_id, "initial_report");
+    stop_cheat_caller_address(contract_address);
+
+    // Check initial state
+    let initial_count = contract.get_more_details_request_count();
+    let initial_requests = contract.get_more_details_requests(report_id);
+    assert!(initial_requests.len() == 0, "Should have no requests initially");
+
+    start_cheat_caller_address(contract_address, requester_address);
+    contract.provide_more_details(report_id, "Please provide more details about methodology");
+    stop_cheat_caller_address(contract_address);
+
+    // Verify the request was created
+    let new_count = contract.get_more_details_request_count();
+    let requests = contract.get_more_details_requests(report_id);
+
+    assert(new_count == initial_count + 1, 'Request count should increment');
+    assert(requests.len() == 1, 'Should have one request');
+
+    // Test direct ID lookup
+    let request = contract.get_request_by_id(1);
+    assert(request.id == 1, 'Wrong request ID');
+    assert(request.report_id == report_id, 'Wrong report ID');
+    assert(request.requester == requester_address, 'Wrong requester');
+    assert(request.details == "Please provide more details about methodology", 'Wrong details');
+    assert!(!request.is_completed, "Should not be completed initially");
+    assert(request.requested_at == get_block_timestamp(), 'Wrong timestamp');
+
+    // Verify the returned data
+    let from_vec = requests.at(0);
+    assert(from_vec.id == @request.id, 'Vec and Map data should match');
+    assert(from_vec.details == @request.details, 'Vec and Map data should match');
+}
+
+#[test]
+fn test_provide_more_details_with_different_requesters() {
+    let contract = contract();
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
+
+    let submitter_address: ContractAddress = 0x4.try_into().unwrap();
+    let requester1: ContractAddress = 0x5.try_into().unwrap();
+    let requester2: ContractAddress = 0x6.try_into().unwrap();
+
+    let erc20_address = contract.get_erc20_address();
+    let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
+    start_cheat_caller_address(erc20_address, OWNER());
+    token_dispatcher.mint(OWNER(), 500);
+    token_dispatcher.approve_user(contract_address, 500);
+    stop_cheat_caller_address(erc20_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    let project_id = contract
+        .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, submitter_address);
+    let report_id = contract.submit_report(project_id, "initial_report");
+    stop_cheat_caller_address(contract_address);
+
+    // Multiple requesters can ask for more details
+    start_cheat_caller_address(contract_address, requester1);
+    contract.provide_more_details(report_id, "Question from requester 1");
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, requester2);
+    contract.provide_more_details(report_id, "Question from requester 2");
+    stop_cheat_caller_address(contract_address);
+
+    // Verify both requests were created
+    let requests = contract.get_more_details_requests(report_id);
+    assert(requests.len() == 2, 'Should have two requests');
+
+    // Test direct ID lookups
+    let request1 = contract.get_request_by_id(1);
+    let request2 = contract.get_request_by_id(2);
+
+    assert(request1.id == 1, 'Wrong first request ID');
+    assert(request2.id == 2, 'Wrong second request ID');
+    assert(request1.requester == requester1, 'Wrong first requester');
+    assert(request2.requester == requester2, 'Wrong second requester');
+    assert(request1.details == "Question from requester 1", 'Wrong first details');
+    assert(request2.details == "Question from requester 2", 'Wrong second details');
+    assert(request1.report_id == report_id, 'Wrong first report ID');
+    assert(request2.report_id == report_id, 'Wrong second report ID');
+
+    let request_ids = contract.get_request_ids_for_report(report_id);
+    assert(request_ids.len() == 2, 'Should have two request IDs');
+    assert(*request_ids.at(0) == 1, 'Wrong first request ID');
+    assert(*request_ids.at(1) == 2, 'Wrong second request ID');
+}
+
+#[test]
+fn test_provide_more_details_multiple_requests_same_report() {
+    let contract = contract();
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
+
+    let submitter_address: ContractAddress = 0x4.try_into().unwrap();
+    let requester_address: ContractAddress = 0x5.try_into().unwrap();
+
+    let erc20_address = contract.get_erc20_address();
+    let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
+    start_cheat_caller_address(erc20_address, OWNER());
+    token_dispatcher.mint(OWNER(), 500);
+    token_dispatcher.approve_user(contract_address, 500);
+    stop_cheat_caller_address(erc20_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    let project_id = contract
+        .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, submitter_address);
+    let report_id = contract.submit_report(project_id, "initial_report");
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, requester_address);
+    contract.provide_more_details(report_id, "First question");
+    contract.provide_more_details(report_id, "Second question");
+    contract.provide_more_details(report_id, "Third question");
+    stop_cheat_caller_address(contract_address);
+
+    // Verify all three requests were created
+    let requests = contract.get_more_details_requests(report_id);
+    assert(requests.len() == 3, 'Should have three requests');
+    assert(contract.get_more_details_request_count() == 3, 'Global count should be 3');
+
+    // Test direct ID lookups
+    let request1 = contract.get_request_by_id(1);
+    let request2 = contract.get_request_by_id(2);
+    let request3 = contract.get_request_by_id(3);
+
+    assert(request1.details == "First question", 'Wrong first question');
+    assert(request2.details == "Second question", 'Wrong second question');
+    assert(request3.details == "Third question", 'Wrong third question');
+
+    // All should have same requester and report_id
+    assert(request1.requester == requester_address, 'Wrong requester 1');
+    assert(request2.requester == requester_address, 'Wrong requester 2');
+    assert(request3.requester == requester_address, 'Wrong requester 3');
+
+    assert(request1.report_id == report_id, 'Wrong report ID 1');
+    assert(request2.report_id == report_id, 'Wrong report ID 2');
+    assert(request3.report_id == report_id, 'Wrong report ID 3');
+
+    // Test get_requests_by_requester
+    start_cheat_caller_address(contract_address, requester_address);
+    let requester_requests = contract.get_requests_by_requester();
+    assert!(requester_requests.len() == 3, "Should have 3 requests by requester");
+}
+
+#[test]
+fn test_request_id_increments_across_different_reports() {
+    let contract = contract();
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
+
+    let submitter_address: ContractAddress = 0x4.try_into().unwrap();
+    let requester_address: ContractAddress = 0x5.try_into().unwrap();
+
+    let erc20_address = contract.get_erc20_address();
+    let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
+    start_cheat_caller_address(erc20_address, OWNER());
+    token_dispatcher.mint(OWNER(), 500);
+    token_dispatcher.approve_user(contract_address, 500);
+    stop_cheat_caller_address(erc20_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    let project_id1 = contract
+        .create_project("Project 1", smart_contract_address, true, get_block_timestamp() + 1000);
+    let project_id2 = contract
+        .create_project("Project 2", smart_contract_address, true, get_block_timestamp() + 1000);
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, submitter_address);
+    let report_id1 = contract.submit_report(project_id1, "Report 1");
+    let report_id2 = contract.submit_report(project_id2, "Report 2");
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, requester_address);
+    contract.provide_more_details(report_id1, "Question for report 1");
+    contract.provide_more_details(report_id2, "Question for report 2");
+    contract.provide_more_details(report_id1, "Another question for report 1");
+    stop_cheat_caller_address(contract_address);
+
+    // Verify the IDs are incremented correctly across reports
+    let request1 = contract.get_request_by_id(1);
+    let request2 = contract.get_request_by_id(2);
+    let request3 = contract.get_request_by_id(3);
+
+    assert(request1.id == 1, 'Wrong ID for request 1');
+    assert(request2.id == 2, 'Wrong ID for request 2');
+    assert(request3.id == 3, 'Wrong ID for request 3');
+
+    assert(request1.report_id == report_id1, 'Wrong report for request 1');
+    assert(request2.report_id == report_id2, 'Wrong report for request 2');
+    assert(request3.report_id == report_id1, 'Wrong report for request 3');
+
+    // Verify requests are properly distributed
+    let report1_requests = contract.get_more_details_requests(report_id1);
+    let report2_requests = contract.get_more_details_requests(report_id2);
+
+    assert(report1_requests.len() == 2, 'Report 1 should have 2 requests');
+    assert(report2_requests.len() == 1, 'Report 2 should have 1 request');
+
+    // Test request IDs for each report
+    let report1_ids = contract.get_request_ids_for_report(report_id1);
+    let report2_ids = contract.get_request_ids_for_report(report_id2);
+
+    assert!(report1_ids.len() == 2, "Report 1 should have 2 request IDs");
+    assert!(report2_ids.len() == 1, "Report 2 should have 1 request ID");
+    assert(*report1_ids.at(0) == 1, 'Wrong first ID for report 1');
+    assert(*report1_ids.at(1) == 3, 'Wrong second ID for report 1');
+    assert(*report2_ids.at(0) == 2, 'Wrong ID for report 2');
+}
+
+#[test]
+fn test_mark_request_as_completed() {
+    let contract = contract();
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
+
+    let submitter_address: ContractAddress = 0x4.try_into().unwrap();
+    let requester_address: ContractAddress = 0x5.try_into().unwrap();
+
+    let erc20_address = contract.get_erc20_address();
+    let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
+    start_cheat_caller_address(erc20_address, OWNER());
+    token_dispatcher.mint(OWNER(), 500);
+    token_dispatcher.approve_user(contract_address, 500);
+    stop_cheat_caller_address(erc20_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    let project_id = contract
+        .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, submitter_address);
+    let report_id = contract.submit_report(project_id, "initial_report");
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, requester_address);
+    contract.provide_more_details(report_id, "Please provide more details");
+    contract.provide_more_details(report_id, "Another question");
+    stop_cheat_caller_address(contract_address);
+
+    // Initially both requests should be incomplete
+    let request1 = contract.get_request_by_id(1);
+    let request2 = contract.get_request_by_id(2);
+    assert!(!request1.is_completed, "Request 1 should not be completed");
+    assert!(!request2.is_completed, "Request 2 should not be completed");
+
+    // Mark first request as completed
+    start_cheat_caller_address(contract_address, requester_address);
+    contract.mark_request_as_completed(1);
+    stop_cheat_caller_address(contract_address);
+
+    // Verify the completion status
+    let updated_request1 = contract.get_request_by_id(1);
+    let updated_request2 = contract.get_request_by_id(2);
+    assert(updated_request1.is_completed, 'Request 1 should be completed');
+    assert!(!updated_request2.is_completed, "Request 2 should still be incomplete");
+
+    // Test get_pending_requests_for_report
+    let pending = contract.get_pending_requests_for_report(report_id);
+    assert(pending.len() == 1, 'Should have 1 pending request');
+    assert(*(pending.at(0).id) == 2, 'Wrong pending request ID');
+}
+
+#[test]
+#[should_panic(expected: 'Not authorized')]
+fn test_mark_request_as_completed_unauthorized() {
+    let contract = contract();
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
+
+    let submitter_address: ContractAddress = 0x4.try_into().unwrap();
+    let requester_address: ContractAddress = 0x5.try_into().unwrap();
+    let unauthorized_user: ContractAddress = 0x7.try_into().unwrap();
+
+    let erc20_address = contract.get_erc20_address();
+    let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
+    start_cheat_caller_address(erc20_address, OWNER());
+    token_dispatcher.mint(OWNER(), 500);
+    token_dispatcher.approve_user(contract_address, 500);
+    stop_cheat_caller_address(erc20_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    let project_id = contract
+        .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, submitter_address);
+    let report_id = contract.submit_report(project_id, "initial_report");
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, requester_address);
+    contract.provide_more_details(report_id, "Please provide more details");
+    stop_cheat_caller_address(contract_address);
+
+    // Try to mark as completed by unauthorized user
+    start_cheat_caller_address(contract_address, unauthorized_user);
+    contract.mark_request_as_completed(1);
+    stop_cheat_caller_address(contract_address);
+}
+
+#[test]
+#[should_panic(expected: 'Request not found')]
+fn test_get_request_by_id_not_found() {
+    let contract = contract();
+
+    // Try to access non-existent request
+    contract.get_request_by_id(999);
+}
+
+#[test]
+fn test_get_more_details_requests_for_non_existent_report() {
+    let contract = contract();
+
+    // Should return empty array for non-existent report
+    let requests = contract.get_more_details_requests(999);
+    assert(requests.len() == 0, 'Should return empty array');
+
+    let request_ids = contract.get_request_ids_for_report(999);
+    assert(request_ids.len() == 0, 'Should return empty ID array');
+}
+
+#[test]
+fn test_get_requests_by_requester_multiple_users() {
+    let contract = contract();
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
+
+    let submitter_address: ContractAddress = 0x4.try_into().unwrap();
+    let requester1: ContractAddress = 0x5.try_into().unwrap();
+    let requester2: ContractAddress = 0x6.try_into().unwrap();
+
+    let erc20_address = contract.get_erc20_address();
+    let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
+    start_cheat_caller_address(erc20_address, OWNER());
+    token_dispatcher.mint(OWNER(), 500);
+    token_dispatcher.approve_user(contract_address, 500);
+    stop_cheat_caller_address(erc20_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    let project_id = contract
+        .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, submitter_address);
+    let report_id = contract.submit_report(project_id, "initial_report");
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, requester1);
+    contract.provide_more_details(report_id, "Question 1 from requester 1");
+    contract.provide_more_details(report_id, "Question 2 from requester 1");
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, requester2);
+    contract.provide_more_details(report_id, "Question from requester 2");
+    stop_cheat_caller_address(contract_address);
+
+    // Test filtering by requester
+    start_cheat_caller_address(contract_address, requester1);
+    let requester1_requests = contract.get_requests_by_requester();
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, requester2);
+    let requester2_requests = contract.get_requests_by_requester();
+    stop_cheat_caller_address(contract_address);
+
+    assert!(requester1_requests.len() == 2, "Requester 1 should have 2 requests");
+    assert!(requester2_requests.len() == 1, "Requester 2 should have 1 request");
+
+    assert(*((requester1_requests.at(0)).requester) == requester1, 'Wrong requester for request 1');
+    assert(*((requester1_requests.at(1)).requester) == requester1, 'Wrong requester for request 2');
+    assert(*((requester2_requests.at(0)).requester) == requester2, 'Wrong requester for request 3');
+}
