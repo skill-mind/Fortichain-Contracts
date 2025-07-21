@@ -1789,7 +1789,7 @@ fn test_provide_more_details_successfully() {
     assert!(initial_requests.len() == 0, "Should have no requests initially");
 
     start_cheat_caller_address(contract_address, requester_address);
-    contract.provide_more_details(report_id, "Please provide more details about methodology");
+    contract.provide_more_details(report_id, "https://ipfs.io/ipfs/QmHashOfDetails");
     stop_cheat_caller_address(contract_address);
 
     // Verify the request was created
@@ -1804,14 +1804,14 @@ fn test_provide_more_details_successfully() {
     assert(request.id == 1, 'Wrong request ID');
     assert(request.report_id == report_id, 'Wrong report ID');
     assert(request.requester == requester_address, 'Wrong requester');
-    assert(request.details == "Please provide more details about methodology", 'Wrong details');
+    assert(request.details_uri == "https://ipfs.io/ipfs/QmHashOfDetails", 'Wrong URI');
     assert!(!request.is_completed, "Should not be completed initially");
     assert(request.requested_at == get_block_timestamp(), 'Wrong timestamp');
 
     // Verify the returned data
     let from_vec = requests.at(0);
     assert(from_vec.id == @request.id, 'Vec and Map data should match');
-    assert(from_vec.details == @request.details, 'Vec and Map data should match');
+    assert(from_vec.details_uri == @request.details_uri, 'Vec and Map URI should match');
 }
 
 #[test]
@@ -1842,11 +1842,11 @@ fn test_provide_more_details_with_different_requesters() {
 
     // Multiple requesters can ask for more details
     start_cheat_caller_address(contract_address, requester1);
-    contract.provide_more_details(report_id, "Question from requester 1");
+    contract.provide_more_details(report_id, "https://ipfs.io/ipfs/QmHashOfDetails_1");
     stop_cheat_caller_address(contract_address);
 
     start_cheat_caller_address(contract_address, requester2);
-    contract.provide_more_details(report_id, "Question from requester 2");
+    contract.provide_more_details(report_id, "https://ipfs.io/ipfs/QmHashOfDetails_2");
     stop_cheat_caller_address(contract_address);
 
     // Verify both requests were created
@@ -1861,8 +1861,8 @@ fn test_provide_more_details_with_different_requesters() {
     assert(request2.id == 2, 'Wrong second request ID');
     assert(request1.requester == requester1, 'Wrong first requester');
     assert(request2.requester == requester2, 'Wrong second requester');
-    assert(request1.details == "Question from requester 1", 'Wrong first details');
-    assert(request2.details == "Question from requester 2", 'Wrong second details');
+    assert(request1.details_uri == "https://ipfs.io/ipfs/QmHashOfDetails_1", 'Wrong first URI');
+    assert(request2.details_uri == "https://ipfs.io/ipfs/QmHashOfDetails_2", 'Wrong second URI');
     assert(request1.report_id == report_id, 'Wrong first report ID');
     assert(request2.report_id == report_id, 'Wrong second report ID');
 
@@ -1898,9 +1898,9 @@ fn test_provide_more_details_multiple_requests_same_report() {
     stop_cheat_caller_address(contract_address);
 
     start_cheat_caller_address(contract_address, requester_address);
-    contract.provide_more_details(report_id, "First question");
-    contract.provide_more_details(report_id, "Second question");
-    contract.provide_more_details(report_id, "Third question");
+    contract.provide_more_details(report_id, "https://ipfs.io/ipfs/QmHashOfDetails_1");
+    contract.provide_more_details(report_id, "https://ipfs.io/ipfs/QmHashOfDetails_2");
+    contract.provide_more_details(report_id, "https://ipfs.io/ipfs/QmHashOfDetails_3");
     stop_cheat_caller_address(contract_address);
 
     // Verify all three requests were created
@@ -1913,9 +1913,9 @@ fn test_provide_more_details_multiple_requests_same_report() {
     let request2 = contract.get_request_by_id(2);
     let request3 = contract.get_request_by_id(3);
 
-    assert(request1.details == "First question", 'Wrong first question');
-    assert(request2.details == "Second question", 'Wrong second question');
-    assert(request3.details == "Third question", 'Wrong third question');
+    assert(request1.details_uri == "https://ipfs.io/ipfs/QmHashOfDetails_1", 'Wrong first URI');
+    assert(request2.details_uri == "https://ipfs.io/ipfs/QmHashOfDetails_2", 'Wrong second URI');
+    assert(request3.details_uri == "https://ipfs.io/ipfs/QmHashOfDetails_3", 'Wrong third URI');
 
     // All should have same requester and report_id
     assert(request1.requester == requester_address, 'Wrong requester 1');
@@ -1961,9 +1961,9 @@ fn test_request_id_increments_across_different_reports() {
     stop_cheat_caller_address(contract_address);
 
     start_cheat_caller_address(contract_address, requester_address);
-    contract.provide_more_details(report_id1, "Question for report 1");
-    contract.provide_more_details(report_id2, "Question for report 2");
-    contract.provide_more_details(report_id1, "Another question for report 1");
+    contract.provide_more_details(report_id1, "https://gateway.pinata.cloud/ipfs/QmFirst");
+    contract.provide_more_details(report_id2, "https://gateway.pinata.cloud/ipfs/QmSecond");
+    contract.provide_more_details(report_id1, "https://gateway.pinata.cloud/ipfs/QmThird");
     stop_cheat_caller_address(contract_address);
 
     // Verify the IDs are incremented correctly across reports
@@ -2023,8 +2023,8 @@ fn test_mark_request_as_completed() {
     stop_cheat_caller_address(contract_address);
 
     start_cheat_caller_address(contract_address, requester_address);
-    contract.provide_more_details(report_id, "Please provide more details");
-    contract.provide_more_details(report_id, "Another question");
+    contract.provide_more_details(report_id, "https://ipfs.io/ipfs/QmHashOfDetails");
+    contract.provide_more_details(report_id, "https://ipfs.io/ipfs/QmHashOfDetails");
     stop_cheat_caller_address(contract_address);
 
     // Initially both requests should be incomplete
@@ -2078,7 +2078,7 @@ fn test_mark_request_as_completed_unauthorized() {
     stop_cheat_caller_address(contract_address);
 
     start_cheat_caller_address(contract_address, requester_address);
-    contract.provide_more_details(report_id, "Please provide more details");
+    contract.provide_more_details(report_id, "https://ipfs.io/ipfs/QmHashOfDetails");
     stop_cheat_caller_address(contract_address);
 
     // Try to mark as completed by unauthorized user
@@ -2135,12 +2135,12 @@ fn test_get_requests_by_requester_multiple_users() {
     stop_cheat_caller_address(contract_address);
 
     start_cheat_caller_address(contract_address, requester1);
-    contract.provide_more_details(report_id, "Question 1 from requester 1");
-    contract.provide_more_details(report_id, "Question 2 from requester 1");
+    contract.provide_more_details(report_id, "https://ipfs.io/ipfs/QmHashOfDetails");
+    contract.provide_more_details(report_id, "https://ipfs.io/ipfs/QmHashOfDetails");
     stop_cheat_caller_address(contract_address);
 
     start_cheat_caller_address(contract_address, requester2);
-    contract.provide_more_details(report_id, "Question from requester 2");
+    contract.provide_more_details(report_id, "https://ipfs.io/ipfs/QmHashOfDetails");
     stop_cheat_caller_address(contract_address);
 
     // Test filtering by requester
@@ -2285,4 +2285,74 @@ fn test_reject_report_already_approved_report() {
     // Verify the report status is now REJECTED
     let report = contract.get_report(report_id);
     assert(report.status == 'REJECTED', 'Report should be rejected');
+}
+
+#[test]
+fn test_get_request_details_uri() {
+    let contract = contract();
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
+
+    let submitter_address: ContractAddress = 0x4.try_into().unwrap();
+    let requester_address: ContractAddress = 0x5.try_into().unwrap();
+
+    let erc20_address = contract.get_erc20_address();
+    let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
+    start_cheat_caller_address(erc20_address, OWNER());
+    token_dispatcher.mint(OWNER(), 500);
+    token_dispatcher.approve_user(contract_address, 500);
+    stop_cheat_caller_address(erc20_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    let project_id = contract
+        .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, submitter_address);
+    let report_id = contract.submit_report(project_id, "initial_report");
+    stop_cheat_caller_address(contract_address);
+
+    // Check initial state
+    let initial_count = contract.get_more_details_request_count();
+    let initial_requests = contract.get_more_details_requests(report_id);
+    assert!(initial_requests.len() == 0, "Should have no requests initially");
+
+    start_cheat_caller_address(contract_address, requester_address);
+    contract.provide_more_details(report_id, "https://ipfs.io/ipfs/QmTestDetails");
+    stop_cheat_caller_address(contract_address);
+
+    let details_uri = contract.get_request_details_uri(1);
+    assert(details_uri == "https://ipfs.io/ipfs/QmTestDetails", 'Wrong details URI');
+}
+
+#[test]
+#[should_panic(expected: 'Details URI is empty')]
+fn test_provide_more_details_empty_uri() {
+    let contract = contract();
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
+
+    let submitter_address: ContractAddress = 0x4.try_into().unwrap();
+    let requester_address: ContractAddress = 0x5.try_into().unwrap();
+
+    let erc20_address = contract.get_erc20_address();
+    let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
+    start_cheat_caller_address(erc20_address, OWNER());
+    token_dispatcher.mint(OWNER(), 500);
+    token_dispatcher.approve_user(contract_address, 500);
+    stop_cheat_caller_address(erc20_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    let project_id = contract
+        .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, submitter_address);
+    let report_id = contract.submit_report(project_id, "initial_report");
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, requester_address);
+    // This should fail because empty URI is not allowed
+    contract.provide_more_details(report_id, "");
+    stop_cheat_caller_address(contract_address);
 }

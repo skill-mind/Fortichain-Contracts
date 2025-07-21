@@ -13,8 +13,8 @@ pub mod Fortichain {
     };
     use starknet::{ContractAddress, get_block_timestamp, get_caller_address, get_contract_address};
     use crate::base::errors::Errors::{
-        CAN_ONLY_CLOSE_AFTER_DEADLINE, NOT_AUTHORIZED, ONLY_OWNER_CAN_CLOSE, ONLY_OWNER_CAN_EDIT,
-        ONLY_VALIDATOR, PROJECT_NOT_FOUND, REQUEST_NOT_FOUND,
+        CAN_ONLY_CLOSE_AFTER_DEADLINE, EMPTY_DETAILS_URI, NOT_AUTHORIZED, ONLY_OWNER_CAN_CLOSE,
+        ONLY_OWNER_CAN_EDIT, ONLY_VALIDATOR, PROJECT_NOT_FOUND, REQUEST_NOT_FOUND,
     };
     use crate::base::types::{Escrow, Project, Report, ReportDetailsRequest, Validator};
     use super::IMockUsdcDispatcherTrait;
@@ -90,6 +90,7 @@ pub mod Fortichain {
         ValidatorPaid: ValidatorPaid,
         ResearchersPaid: ResearchersPaid,
         BountyWithdrawn: BountyWithdrawn,
+        MoreDetailsRequested: MoreDetailsRequested,
         #[flat]
         OwnableEvent: OwnableComponent::Event,
         #[flat]
@@ -181,6 +182,14 @@ pub mod Fortichain {
         pub timestamp: u64,
     }
 
+    #[derive(Drop, starknet::Event)]
+    pub struct MoreDetailsRequested {
+        pub request_id: u256,
+        pub report_id: u256,
+        pub requester: ContractAddress,
+        pub details_uri: ByteArray,
+        pub timestamp: u64,
+    }
 
     const PROJECT_OWNER_ROLE: felt252 = selector!("PROJECT_OWNER_ROLE");
     const RESEARCHER_ROLE: felt252 = selector!("RESEARCHER_ROLE");
@@ -819,15 +828,18 @@ pub mod Fortichain {
             self.project_validators.read(project_id)
         }
 
-        fn provide_more_details(ref self: ContractState, report_id: u256, details: ByteArray) {
+        fn provide_more_details(ref self: ContractState, report_id: u256, details_uri: ByteArray) {
             let caller = get_caller_address();
             let id = self.more_details_request_count.read() + 1;
+
+            // Validate that details_uri is not empty
+            assert(details_uri.len() > 0, EMPTY_DETAILS_URI);
 
             let new_request = ReportDetailsRequest {
                 id,
                 report_id,
                 requester: caller,
-                details,
+                details_uri: details_uri.clone(),
                 requested_at: get_block_timestamp(),
                 is_completed: false,
             };
@@ -839,6 +851,20 @@ pub mod Fortichain {
 
             // Store request ID
             self.report_request_ids.entry(report_id).push(id);
+
+            // Emit event
+            self
+                .emit(
+                    Event::MoreDetailsRequested(
+                        MoreDetailsRequested {
+                            request_id: id,
+                            report_id,
+                            requester: caller,
+                            details_uri: details_uri,
+                            timestamp: get_block_timestamp(),
+                        },
+                    ),
+                );
         }
 
         fn get_more_details_requests(
@@ -933,6 +959,12 @@ pub mod Fortichain {
             }
 
             pending_requests.span()
+        }
+
+        fn get_request_details_uri(self: @ContractState, request_id: u256) -> ByteArray {
+            let request = self.detail_requests_by_id.read(request_id);
+            assert(request.id == request_id, REQUEST_NOT_FOUND);
+            request.details_uri
         }
 
         fn reject_report(ref self: ContractState, report_id: u256) {

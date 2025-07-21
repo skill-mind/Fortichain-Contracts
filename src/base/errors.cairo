@@ -6,4 +6,5 @@ pub mod Errors {
     pub const ONLY_VALIDATOR: felt252 = 'Caller non validator';
     pub const NOT_AUTHORIZED: felt252 = 'Not authorized';
     pub const REQUEST_NOT_FOUND: felt252 = 'Request not found';
+    pub const EMPTY_DETAILS_URI: felt252 = 'Details URI is empty';
 }

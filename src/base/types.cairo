@@ -58,7 +58,7 @@ pub struct ReportDetailsRequest {
     pub id: u256,
     pub report_id: u256,
     pub requester: ContractAddress,
-    pub details: ByteArray,
+    pub details_uri: ByteArray,
     pub requested_at: u64,
     pub is_completed: bool,
 }

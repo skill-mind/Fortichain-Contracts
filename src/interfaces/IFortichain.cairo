@@ -54,7 +54,7 @@ pub trait IFortichain<TContractState> {
         ref self: TContractState, project_id: u256, submitter_address: ContractAddress,
     ) -> bool;
 
-    fn provide_more_details(ref self: TContractState, report_id: u256, details: ByteArray);
+    fn provide_more_details(ref self: TContractState, report_id: u256, details_uri: ByteArray);
 
     fn get_more_details_requests(
         self: @TContractState, report_id: u256,
@@ -73,6 +73,8 @@ pub trait IFortichain<TContractState> {
     fn get_pending_requests_for_report(
         self: @TContractState, report_id: u256,
     ) -> Span<ReportDetailsRequest>;
+
+    fn get_request_details_uri(self: @TContractState, request_id: u256) -> ByteArray;
 
     fn reject_report(ref self: TContractState, report_id: u256);
 
