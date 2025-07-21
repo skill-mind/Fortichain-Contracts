@@ -1,5 +1,5 @@
 use starknet::ContractAddress;
-use crate::base::types::{Escrow, Project, Report, Validator};
+use crate::base::types::{Escrow, Project, Report, ReportDetailsRequest, Validator};
 
 #[starknet::interface]
 pub trait IFortichain<TContractState> {
@@ -53,6 +53,30 @@ pub trait IFortichain<TContractState> {
     fn get_contributor_paid_status(
         ref self: TContractState, project_id: u256, submitter_address: ContractAddress,
     ) -> bool;
+
+    fn provide_more_details(ref self: TContractState, report_id: u256, details_uri: ByteArray);
+
+    fn get_more_details_requests(
+        self: @TContractState, report_id: u256,
+    ) -> Span<ReportDetailsRequest>;
+
+    fn get_request_by_id(self: @TContractState, request_id: u256) -> ReportDetailsRequest;
+
+    fn get_more_details_request_count(self: @TContractState) -> u256;
+
+    fn mark_request_as_completed(ref self: TContractState, request_id: u256);
+
+    fn get_request_ids_for_report(self: @TContractState, report_id: u256) -> Span<u256>;
+
+    fn get_requests_by_requester(self: @TContractState) -> Span<ReportDetailsRequest>;
+
+    fn get_pending_requests_for_report(
+        self: @TContractState, report_id: u256,
+    ) -> Span<ReportDetailsRequest>;
+
+    fn get_request_details_uri(self: @TContractState, request_id: u256) -> ByteArray;
+
+    fn reject_report(ref self: TContractState, report_id: u256);
 
     // --- Role Management & Validators ---
     fn set_role(

@@ -52,3 +52,13 @@ pub struct Validator {
     pub updated_at: u64,
     pub status: felt252,
 }
+
+#[derive(Drop, Clone, Serde, PartialEq, starknet::Store)]
+pub struct ReportDetailsRequest {
+    pub id: u256,
+    pub report_id: u256,
+    pub requester: ContractAddress,
+    pub details_uri: ByteArray,
+    pub requested_at: u64,
+    pub is_completed: bool,
+}
