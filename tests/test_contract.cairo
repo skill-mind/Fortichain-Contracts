@@ -2159,3 +2159,130 @@ fn test_get_requests_by_requester_multiple_users() {
     assert(*((requester1_requests.at(1)).requester) == requester1, 'Wrong requester for request 2');
     assert(*((requester2_requests.at(0)).requester) == requester2, 'Wrong requester for request 3');
 }
+
+#[test]
+fn test_reject_report_successfully() {
+    let contract = contract();
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
+
+    let submitter_address: ContractAddress = 0x4.try_into().unwrap();
+
+    let erc20_address = contract.get_erc20_address();
+    let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
+    start_cheat_caller_address(erc20_address, OWNER());
+    token_dispatcher.mint(OWNER(), 500);
+    token_dispatcher.approve_user(contract_address, 500);
+    stop_cheat_caller_address(erc20_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    contract.set_role(OWNER(), ADMIN_ROLE, true);
+    let project_id = contract
+        .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
+
+    // Register and approve validator
+    contract.register_validator_profile("validator_data", VALIDATOR_ADDRESS());
+    contract.approve_validator_profile(VALIDATOR_ADDRESS());
+    contract.assign_validator(project_id, VALIDATOR_ADDRESS());
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, submitter_address);
+    let report_id = contract.submit_report(project_id, "report_to_reject");
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, VALIDATOR_ADDRESS());
+    contract.reject_report(report_id);
+    stop_cheat_caller_address(contract_address);
+
+    // Verify the report status is now REJECTED
+    let report = contract.get_report(report_id);
+    assert(report.status == 'REJECTED', 'Report should be rejected');
+}
+
+#[test]
+#[should_panic(expected: 'Caller non validator')]
+fn test_reject_report_should_fail_when_non_validator_tries() {
+    let contract = contract();
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
+
+    let submitter_address: ContractAddress = 0x4.try_into().unwrap();
+    let non_validator: ContractAddress = 0x7.try_into().unwrap();
+
+    let erc20_address = contract.get_erc20_address();
+    let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
+    start_cheat_caller_address(erc20_address, OWNER());
+    token_dispatcher.mint(OWNER(), 500);
+    token_dispatcher.approve_user(contract_address, 500);
+    stop_cheat_caller_address(erc20_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    let project_id = contract
+        .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, submitter_address);
+    let report_id = contract.submit_report(project_id, "report_to_reject");
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, non_validator);
+    contract.reject_report(report_id);
+    stop_cheat_caller_address(contract_address);
+}
+
+#[test]
+#[should_panic(expected: 'Report not found')]
+fn test_reject_report_should_fail_with_invalid_report_id() {
+    let contract = contract();
+    let contract_address = contract.contract_address;
+
+    start_cheat_caller_address(contract_address, OWNER());
+    contract.set_role(VALIDATOR_ADDRESS(), VALIDATOR_ROLE, true);
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, VALIDATOR_ADDRESS());
+    contract.reject_report(999); // Non-existent report 
+    stop_cheat_caller_address(contract_address);
+}
+
+#[test]
+fn test_reject_report_already_approved_report() {
+    let contract = contract();
+    let contract_address = contract.contract_address;
+    let smart_contract_address: ContractAddress = 'project'.try_into().unwrap();
+
+    let submitter_address: ContractAddress = 0x4.try_into().unwrap();
+
+    let erc20_address = contract.get_erc20_address();
+    let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
+    start_cheat_caller_address(erc20_address, OWNER());
+    token_dispatcher.mint(OWNER(), 500);
+    token_dispatcher.approve_user(contract_address, 500);
+    stop_cheat_caller_address(erc20_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    contract.set_role(OWNER(), ADMIN_ROLE, true);
+    let project_id = contract
+        .create_project("12345", smart_contract_address, true, get_block_timestamp() + 1000);
+
+    // Register and approve validator
+    contract.register_validator_profile("validator_data", VALIDATOR_ADDRESS());
+    contract.approve_validator_profile(VALIDATOR_ADDRESS());
+    contract.assign_validator(project_id, VALIDATOR_ADDRESS());
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, submitter_address);
+    let report_id = contract.submit_report(project_id, "report_content");
+    stop_cheat_caller_address(contract_address);
+
+    start_cheat_caller_address(contract_address, VALIDATOR_ADDRESS());
+    // First approve the report
+    contract.review_report(project_id, submitter_address, true);
+    // Then try to reject
+    contract.reject_report(report_id);
+    stop_cheat_caller_address(contract_address);
+
+    // Verify the report status is now REJECTED
+    let report = contract.get_report(report_id);
+    assert(report.status == 'REJECTED', 'Report should be rejected');
+}
