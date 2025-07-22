@@ -1,4 +1,4 @@
-use starknet::ContractAddress;
+use starknet::{ClassHash, ContractAddress};
 use crate::base::types::{Escrow, Project, Report, ReportDetailsRequest, Validator};
 
 #[starknet::interface]
@@ -105,4 +105,6 @@ pub trait IFortichain<TContractState> {
     fn get_validator(
         self: @TContractState, validator_address: ContractAddress,
     ) -> (u256, Validator);
+
+    fn upgrade(ref self: TContractState, new_class_hash: ClassHash);
 }

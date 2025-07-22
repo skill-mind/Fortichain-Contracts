@@ -7,11 +7,14 @@ pub mod Fortichain {
     use openzeppelin::access::accesscontrol::AccessControlComponent;
     use openzeppelin::access::ownable::OwnableComponent;
     use openzeppelin::introspection::src5::SRC5Component;
+    use openzeppelin::upgrades::UpgradeableComponent;
     use starknet::storage::{
         Map, MutableVecTrait, StorageMapReadAccess, StorageMapWriteAccess, StoragePathEntry,
         StoragePointerReadAccess, StoragePointerWriteAccess, Vec, VecTrait,
     };
-    use starknet::{ContractAddress, get_block_timestamp, get_caller_address, get_contract_address};
+    use starknet::{
+        ClassHash, ContractAddress, get_block_timestamp, get_caller_address, get_contract_address,
+    };
     use crate::base::errors::Errors::{
         CAN_ONLY_CLOSE_AFTER_DEADLINE, EMPTY_DETAILS_URI, NOT_AUTHORIZED, ONLY_OWNER_CAN_CLOSE,
         ONLY_OWNER_CAN_EDIT, ONLY_VALIDATOR, PROJECT_NOT_FOUND, REQUEST_NOT_FOUND,
@@ -22,6 +25,7 @@ pub mod Fortichain {
     component!(path: OwnableComponent, storage: ownable, event: OwnableEvent);
     component!(path: AccessControlComponent, storage: accesscontrol, event: AccessControlEvent);
     component!(path: SRC5Component, storage: src5, event: SRC5Event);
+    component!(path: UpgradeableComponent, storage: upgradeable, event: UpgradeableEvent);
 
     #[abi(embed_v0)]
     impl OwnableImpl = OwnableComponent::OwnableImpl<ContractState>;
@@ -36,6 +40,8 @@ pub mod Fortichain {
         AccessControlComponent::AccessControlImpl<ContractState>;
 
     impl AccessControlInternalImpl = AccessControlComponent::InternalImpl<ContractState>;
+
+    impl UpgradeableInternalImpl = UpgradeableComponent::InternalImpl<ContractState>;
 
 
     #[storage]
@@ -74,6 +80,8 @@ pub mod Fortichain {
         accesscontrol: AccessControlComponent::Storage,
         #[substorage(v0)]
         src5: SRC5Component::Storage,
+        #[substorage(v0)]
+        upgradeable: UpgradeableComponent::Storage,
     }
 
     #[event]
@@ -97,6 +105,8 @@ pub mod Fortichain {
         AccessControlEvent: AccessControlComponent::Event,
         #[flat]
         SRC5Event: SRC5Component::Event,
+        #[flat]
+        UpgradeableEvent: UpgradeableComponent::Event,
     }
 
     #[derive(Drop, starknet::Event)]
@@ -976,6 +986,14 @@ pub mod Fortichain {
             report.status = 'REJECTED';
 
             self.reports.entry(report_id).write(report);
+        }
+
+        /// @notice Upgrades the contract implementation
+        /// @param new_class_hash The class hash of the new implementation
+        /// @dev Can only be called by admin when contract is not paused
+        fn upgrade(ref self: ContractState, new_class_hash: ClassHash) {
+            self.accesscontrol.assert_only_role(ADMIN_ROLE);
+            self.upgradeable.upgrade(new_class_hash);
         }
     }
     #[generate_trait]
