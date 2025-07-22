@@ -6,11 +6,13 @@ use fortichain_contracts::interfaces::IFortichain::{
     IFortichainDispatcher, IFortichainDispatcherTrait,
 };
 use fortichain_contracts::interfaces::IMockUsdc::{IMockUsdcDispatcher, IMockUsdcDispatcherTrait};
+use openzeppelin::upgrades::upgradeable::UpgradeableComponent::{Event as UpgradeEvent, Upgraded};
 use snforge_std::{
-    ContractClassTrait, DeclareResultTrait, EventSpyAssertionsTrait, declare, spy_events,
-    start_cheat_block_timestamp, start_cheat_caller_address, stop_cheat_caller_address,
+    ContractClassTrait, DeclareResultTrait, EventSpyAssertionsTrait, EventSpyTrait, declare,
+    get_class_hash, spy_events, start_cheat_block_timestamp, start_cheat_caller_address,
+    stop_cheat_caller_address,
 };
-use starknet::{ContractAddress, get_block_timestamp};
+use starknet::{ClassHash, ContractAddress, get_block_timestamp};
 
 
 // Accounts
@@ -2355,4 +2357,47 @@ fn test_provide_more_details_empty_uri() {
     // This should fail because empty URI is not allowed
     contract.provide_more_details(report_id, "");
     stop_cheat_caller_address(contract_address);
+}
+
+// Helper function to declare Contract Class and return the Class Hash
+fn declare_contract(name: ByteArray) -> ClassHash {
+    let declare_result = declare(name);
+    let declared_contract = declare_result.unwrap().contract_class();
+    *declared_contract.class_hash
+}
+
+
+#[test]
+fn test_upgrade_by_admin() {
+    let contract = contract();
+    let contract_address = contract.contract_address;
+    let new_class_hash = declare_contract("Fortichain");
+    let mut spy = spy_events();
+
+    start_cheat_caller_address(contract.contract_address, OWNER());
+    contract.set_role(OWNER(), ADMIN_ROLE, true);
+    stop_cheat_caller_address(contract.contract_address);
+
+    start_cheat_caller_address(contract_address, OWNER());
+    contract.upgrade(new_class_hash);
+    stop_cheat_caller_address(contract_address);
+
+    // let events = spy.get_events();
+    // assert(events.events.len() == 1, 'Upgrade event not emitted');
+
+    let current_class_hash = get_class_hash(contract.contract_address);
+    assert(current_class_hash == new_class_hash, 'Contract upgrade failed');
+
+    let expected_upgrade_event = UpgradeEvent::Upgraded(Upgraded { class_hash: new_class_hash });
+    let expected_events = array![(contract_address, expected_upgrade_event)];
+    spy.assert_emitted(@expected_events);
+}
+
+#[test]
+#[should_panic(expected: 'Caller is missing role')]
+fn test_upgrade_by_non_admin_should_panic() {
+    let contract = contract();
+    let contract_address = contract.contract_address;
+    let new_class_hash = declare_contract("Fortichain");
+    contract.upgrade(new_class_hash);
 }
