@@ -373,7 +373,7 @@ fn test_successful_create_multiple_project() {
     let project = contract.get_user_projects(OWNER());
     let user_project_id = contract.get_user_projects_by_id(1);
     stop_cheat_caller_address(contract_address);
-    assert!(user_project_id.is_active,"project does not exist");
+    assert!(user_project_id.is_active, "project does not exist");
     assert!(project.len() == 3, "project length should be 3");
     let erc20_address = contract.get_erc20_address();
     let token_dispatcher = IMockUsdcDispatcher { contract_address: erc20_address };
@@ -384,9 +384,9 @@ fn test_successful_create_multiple_project() {
 
     stop_cheat_caller_address(erc20_address);
     start_cheat_caller_address(contract.contract_address, OWNER());
-    let fund_project = contract.fund_project(1,200);
-    let fund_escrow = contract.add_escrow_funding(1,200);
-    let fund_escrow = contract.add_escrow_funding(1,1000);
+    let fund_project = contract.fund_project(1, 200);
+    let fund_escrow = contract.add_escrow_funding(1, 200);
+    let fund_escrow = contract.add_escrow_funding(1, 1000);
     stop_cheat_caller_address(contract.contract_address);
     let total_bounty = contract.get_user_total_bounty(OWNER());
     assert!(fund_project == 1, "project is not funded");
@@ -394,9 +394,9 @@ fn test_successful_create_multiple_project() {
     assert!(total_bounty == 1330, "amount not 1330");
 
     start_cheat_caller_address(contract.contract_address, OWNER());
-        let user_report = contract.get_researcher_projects_report();
+    let user_report = contract.get_researcher_projects_report();
     assert!(user_report.len() == 0, "should be zero");
-    let submit_report = contract.submit_report(1,"sample report");
+    let submit_report = contract.submit_report(1, "sample report");
     assert_eq!(submit_report, 1);
 
     let researcher_report = contract.get_researcher_projects_report();
@@ -406,8 +406,8 @@ fn test_successful_create_multiple_project() {
     stop_cheat_caller_address(contract.contract_address);
     let reporter_total_bounty = contract.get_reporter_total_bounty(OWNER());
     let validator_total_bounty = contract.get_validator_total_bounty(OWNER());
-    println!("reporter {}",reporter_total_bounty );
-    println!("validator {}",validator_total_bounty );
+    println!("reporter {}", reporter_total_bounty);
+    println!("validator {}", validator_total_bounty);
 }
 
 #[test]
