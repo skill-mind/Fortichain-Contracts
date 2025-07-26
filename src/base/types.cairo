@@ -31,7 +31,7 @@ pub struct Escrow {
 }
 
 
-#[derive(Drop, Clone, Serde, PartialEq, starknet::Store)]
+#[derive(Drop, Clone, Serde, PartialEq, starknet::Store,Debug)]
 pub struct Report {
     pub id: u256,
     pub report_uri: ByteArray,
