@@ -13,7 +13,8 @@ pub mod Fortichain {
         StoragePointerReadAccess, StoragePointerWriteAccess, Vec, VecTrait,
     };
     use starknet::{
-        ClassHash, ContractAddress, get_block_timestamp, get_caller_address, get_contract_address,
+        ClassHash, ContractAddress, contract_address_const, get_block_timestamp, get_caller_address,
+        get_contract_address,
     };
     use crate::base::errors::Errors::{
         CAN_ONLY_CLOSE_AFTER_DEADLINE, EMPTY_DETAILS_URI, NOT_AUTHORIZED, ONLY_OWNER_CAN_CLOSE,
@@ -63,10 +64,12 @@ pub mod Fortichain {
         >, // bool - Checks wether the report has been reviewed
         approved_researchers_reports: Map<u256, Vec<ContractAddress>>,
         paid_researchers: Map<(u256, ContractAddress), bool>,
+        researcher_paid_amount: Map<ContractAddress, u256>,
         // Validators storage variables
         validators: Map<ContractAddress, (u256, Validator)>,
         total_validators: u256,
         project_validators: Map<u256, Validator>,
+        validator_paid_amount: Map<ContractAddress, u256>,
         // Report storage variables
         reports: Map<u256, Report>,
         report_count: u256,
@@ -74,6 +77,10 @@ pub mod Fortichain {
         detail_requests_by_id: Map<u256, ReportDetailsRequest>,
         report_request_ids: Map<u256, Vec<u256>>, // report_id -> Vec<request_ids>
         more_details_request_count: u256,
+        // user project storage
+        user_projects: Map<ContractAddress, Vec<u256>>,
+        total_user_amount: Map<ContractAddress, u256>,
+        researcher_projects_report: Map<ContractAddress, Vec<u256>>,
         #[substorage(v0)]
         ownable: OwnableComponent::Storage,
         #[substorage(v0)]
@@ -225,6 +232,8 @@ pub mod Fortichain {
             signature_request: bool,
             deadline: u64,
         ) -> u256 {
+            let caller = get_caller_address();
+            assert(caller != contract_address_const::<0>(), 'Zero address forbidden');
             let timestamp: u64 = get_block_timestamp();
             assert(deadline > get_block_timestamp(), 'Deadline not in future');
             assert(0.try_into().unwrap() != smart_contract_address, 'Zero contract address');
@@ -248,7 +257,7 @@ pub mod Fortichain {
             self.projects.write(id, project);
             self.project_count.write(id);
             self.in_progress_projects.write(id, true);
-
+            self.user_projects.entry(caller).push(id);
             self
                 .emit(
                     Event::ProjectCreated(
@@ -377,11 +386,10 @@ pub mod Fortichain {
                 validator_paid: false,
                 researchers_paid: false,
             };
-
             self.escrows_count.write(id);
             self.escrows.write(id, escrow);
             self.project_escrows.write(project.id, escrow);
-
+            self.total_user_amount.entry(caller).write(escrow.current_amount);
             self
                 .emit(
                     Event::EscrowCreated(
@@ -462,7 +470,7 @@ pub mod Fortichain {
             escrow.initial_deposit = initial_deposit + (amount * 95_u256) / 100_u256;
             escrow.current_amount = current_amount + (amount * 95_u256) / 100_u256;
             self.escrows.write(escrow_id, escrow);
-
+            self.total_user_amount.entry(caller).write(escrow.current_amount);
             self
                 .emit(
                     Event::EscrowFundsAdded(
@@ -522,7 +530,7 @@ pub mod Fortichain {
             self.reports.write(id, report.clone());
             self.report_count.write(id);
             self.researchers_reports.write((caller, project_id), (report, false));
-
+            self.researcher_projects_report.entry(caller).push(id);
             self
                 .emit(
                     Event::ReportSubmitted(
@@ -617,7 +625,7 @@ pub mod Fortichain {
 
             escrow.validator_paid = true;
             escrow.current_amount = escrow_prev_amount - validator_pay;
-
+            self.validator_paid_amount.entry(validator.validator_address).write(validator_pay);
             self.project_escrows.write(project_id, escrow);
             self.escrows.write(escrow.id, escrow);
             project.validator_paid = true;
@@ -658,6 +666,7 @@ pub mod Fortichain {
             while i != len {
                 let address: ContractAddress = *list_of_approved_contributors.at(i);
                 self.paid_researchers.write((project_id, address), true);
+                self.researcher_paid_amount.entry(address).write(researchers_pay);
                 let success = self
                     .process_payment(get_contract_address(), researchers_pay / len.into(), address);
                 assert(success, 'Tokens transfer failed');
@@ -988,6 +997,63 @@ pub mod Fortichain {
             self.reports.entry(report_id).write(report);
         }
 
+        fn get_user_projects(self: @ContractState, user: ContractAddress) -> Array<Project> {
+            let mut user_project = ArrayTrait::new();
+
+            let user_project_ids = self.user_projects.entry(user);
+
+            let user_project_ids_len = user_project_ids.len();
+            for i in 0..user_project_ids_len {
+                let project_id: u256 = user_project_ids.at(i).read();
+                let project = self.projects.entry(project_id).read();
+                user_project.append(project);
+            }
+
+            user_project
+        }
+        fn get_user_projects_by_id(self: @ContractState, id: u256) -> Project {
+            let user = get_caller_address();
+            let project_len = self.user_projects.entry(user).len();
+            assert!(project_len > 0, "No project yet");
+            let report = self.projects.entry(id).read();
+            assert!(report.is_active, "project does not exist");
+            report
+        }
+        fn get_researcher_projects_report(self: @ContractState) -> Array<Report> {
+            let user = get_caller_address();
+            assert(user != contract_address_const::<0>(), 'Zero address forbidden');
+            let mut report = ArrayTrait::new();
+
+            let report_ids = self.researcher_projects_report.entry(user);
+            let report_ids_len = report_ids.len();
+            for i in 0..report_ids_len {
+                let report_id: u256 = report_ids.at(i).read();
+                let new_report = self.reports.entry(report_id).read();
+                report.append(new_report);
+            }
+
+            report
+        }
+        fn get_researcher_projects_report_by_id(self: @ContractState, id: u256) -> Report {
+            let user = get_caller_address();
+            assert(user != contract_address_const::<0>(), 'Zero address forbidden');
+            let report_len = self.researcher_projects_report.entry(user).len();
+            assert!(report_len > 0, "No sumbit report yet");
+            let mut report = self.reports.entry(id).read();
+            assert!(report.status == 'AWAITING_REVIEW', "not pending");
+            report
+        }
+        fn get_user_total_bounty(self: @ContractState, user: ContractAddress) -> u256 {
+            self.total_user_amount.entry(user).read()
+        }
+        fn get_reporter_total_bounty(self: @ContractState, reporter: ContractAddress) -> u256 {
+            let amount = self.researcher_paid_amount.read(reporter);
+            amount
+        }
+        fn get_validator_total_bounty(self: @ContractState, validator: ContractAddress) -> u256 {
+            let amount = self.validator_paid_amount.entry(validator).read();
+            amount
+        }
         /// @notice Upgrades the contract implementation
         /// @param new_class_hash The class hash of the new implementation
         /// @dev Can only be called by admin when contract is not paused
