@@ -107,4 +107,16 @@ pub trait IFortichain<TContractState> {
     ) -> (u256, Validator);
 
     fn upgrade(ref self: TContractState, new_class_hash: ClassHash);
+    fn get_user_projects(self: @TContractState, user: ContractAddress) -> Array<Project>;
+    fn get_user_projects_by_id(self: @TContractState, id: u256) -> Project;
+    fn get_researcher_projects_report(
+        self: @TContractState,
+    ) -> Array<Report>; // only resercher can make report researcher report 
+    fn get_researcher_projects_report_by_id(
+        self: @TContractState, id: u256,
+    ) -> Report; // caller research 
+    fn get_user_total_bounty(self: @TContractState, user: ContractAddress) -> u256;
+    //Get the total bounty received by both validators and researchers. on dapp
+    fn get_reporter_total_bounty(self: @TContractState, reporter: ContractAddress) -> u256;
+    fn get_validator_total_bounty(self: @TContractState, validator: ContractAddress) -> u256;
 }
